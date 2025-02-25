@@ -1,5 +1,5 @@
-# InferSim
-InferSim is a simulation framework for analyzing transformer inference on hardware. This repository includes various plugins and tools for energy estimation using the Accelergy framework.
+# TransInferSim
+TransInferSim is a simulation framework for analyzing transformer inference on hardware. This repository includes various plugins and tools for energy estimation using the Accelergy framework.
 
 ## Features
 - Analyze transformer inference on hardware
@@ -7,7 +7,7 @@ InferSim is a simulation framework for analyzing transformer inference on hardwa
 - Includes various plugins for Accelergy's flexibility
 
 ## Installation
-To get started with InferSim, follow these steps:
+To get started with TransInferSim, follow these steps:
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -23,8 +23,8 @@ sudo apt-get install graphviz
 Clone the repository and its submodules and build using pip:
 
 ```sh
-git clone --recurse-submodules https://github.com/honzastor/infersim.git
-cd infersim
+git clone https://git.fit.vutbr.cz/iklhufek/TransInferSim.git
+cd TransInferSim
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip

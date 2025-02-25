@@ -1,0 +1,18 @@
+[submodule "accelergy"]
+	path = accelergy
+	url = https://github.com/Accelergy-Project/accelergy
+[submodule "accelergy_plugins/accelergy-aladdin-plug-in"]
+	path = accelergy_plugins/accelergy-aladdin-plug-in
+	url = https://github.com/Accelergy-Project/accelergy-aladdin-plug-in
+[submodule "accelergy_plugins/accelergy-library-plug-in"]
+	path = accelergy_plugins/accelergy-library-plug-in
+	url = https://github.com/Accelergy-Project/accelergy-library-plug-in
+[submodule "accelergy_plugins/accelergy-cacti-plug-in"]
+	path = accelergy_plugins/accelergy-cacti-plug-in
+	url = https://github.com/Accelergy-Project/accelergy-cacti-plug-in
+[submodule "accelergy_plugins/accelergy-adc-plug-in"]
+	path = accelergy_plugins/accelergy-adc-plug-in
+	url = https://github.com/Accelergy-Project/accelergy-adc-plug-in
+[submodule "accelergy_plugins/accelergy-neurosim-plugin"]
+	path = accelergy_plugins/accelergy-neurosim-plugin
+	url = https://github.com/Accelergy-Project/accelergy-neurosim-plugin

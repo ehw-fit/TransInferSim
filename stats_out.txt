@@ -1,0 +1,274 @@
+STATS AFTER SIMULATION ANALYSIS
+–––––––––––––––––––––––––––––––
+Accelerator Name: my_accelerator
+Frequency: 200 Hz
+Cycle Time: 5.000000e-09 s
+Number of Memory Blocks: 4
+Number of Matmul Blocks: 3
+Global Cycles: 3.557736e+06
+Global Latency: 0.0177887 s
+Total Energy: 0.00292623 J
+Total EDP (cycles): 10410.7 J.cycles
+Total EDP (latency): 5.20537e-05 J.s
+Total Area: 2.07443e+07 um^2
+Average Throughput: 795.755060 GFLOPs/cycle
+Minimum Utilization: 48.25%
+Maximum Utilization: 48.88%
+
+Memory Block Statistics:
+  Name: shared_mem_1
+    Size: 16777216
+    Width: 2048
+    Depth: 8192
+    Word Size: 8
+    Ports: 6
+    Bus Bitwidth: 32
+    Bandwidth per port: 6.400000e+00 Gbps
+    Total Bandwidth: 3.840000e+01 Gbps
+    Current Usage: 11244864
+    Utilized Capacity: 67.02%
+    Action Latency: 5.000000e-09
+    Cycles per Access: 1
+    Data Read Count: 28405056
+    Memory Block Read Count: 110991
+    Data Write Count: 11244864
+    Memory Block Write Count: 43959
+    Word Read Count: 28405056
+    Word Write Count: 11244864
+    Cache Miss Count: 5346048
+    Cache Miss Rate: 0.18820762050249082
+    Cache Hit Rate: 0.8117923794975092
+    Fragmented Bits: 0
+    Replacement Strategy: lru
+    Energy: 0.000316899 J
+    Area: 9.32018e+06 um^2
+    Ports Utilization:
+      Port ID: 0
+        Global Cycles: 2839512
+        Idle Cycles: 2636632
+        Utilization: 51.85239832991974
+      Port ID: 1
+        Global Cycles: 2839512
+        Idle Cycles: 2636296
+        Utilization: 51.855580034946435
+      Port ID: 2
+        Global Cycles: 2839512
+        Idle Cycles: 2635128
+        Utilization: 51.866643286133886
+      Port ID: 3
+        Global Cycles: 2839512
+        Idle Cycles: 2638456
+        Utilization: 51.83513302742915
+      Port ID: 4
+        Global Cycles: 2839512
+        Idle Cycles: 2614376
+        Utilization: 52.063995446917865
+      Port ID: 5
+        Global Cycles: 2839512
+        Idle Cycles: 2636584
+        Utilization: 51.85285283530456
+  Name: dedicated_mem_0
+    Size: 4194304
+    Width: 1024
+    Depth: 4096
+    Word Size: 8
+    Ports: 2
+    Bus Bitwidth: 32
+    Bandwidth per port: 6.400000e+00 Gbps
+    Total Bandwidth: 1.280000e+01 Gbps
+    Current Usage: 1769472
+    Utilized Capacity: 42.19%
+    Action Latency: 5.000000e-09
+    Cycles per Access: 1
+    Data Read Count: 7077888
+    Memory Block Read Count: 55296
+    Data Write Count: 1769472
+    Memory Block Write Count: 13824
+    Word Read Count: 7077888
+    Word Write Count: 1769472
+    Cache Miss Count: 1769472
+    Cache Miss Rate: 0.25
+    Cache Hit Rate: 0.75
+    Fragmented Bits: 0
+    Replacement Strategy: lru
+    Energy: 3.52429e-05 J
+    Area: 2.36649e+06 um^2
+    Ports Utilization:
+      Port ID: 0
+        Global Cycles: 331776
+        Idle Cycles: 195072
+        Utilization: 62.973760932944614
+      Port ID: 1
+        Global Cycles: 331776
+        Idle Cycles: 192000
+        Utilization: 63.34310850439883
+  Name: dedicated_mem_1
+    Size: 4194304
+    Width: 1024
+    Depth: 4096
+    Word Size: 8
+    Ports: 2
+    Bus Bitwidth: 32
+    Bandwidth per port: 6.400000e+00 Gbps
+    Total Bandwidth: 1.280000e+01 Gbps
+    Current Usage: 1781760
+    Utilized Capacity: 42.48%
+    Action Latency: 5.000000e-09
+    Cycles per Access: 1
+    Data Read Count: 7127040
+    Memory Block Read Count: 55680
+    Data Write Count: 1781760
+    Memory Block Write Count: 13920
+    Word Read Count: 7127040
+    Word Write Count: 1781760
+    Cache Miss Count: 1781760
+    Cache Miss Rate: 0.25
+    Cache Hit Rate: 0.75
+    Fragmented Bits: 0
+    Replacement Strategy: lru
+    Energy: 3.54876e-05 J
+    Area: 2.36649e+06 um^2
+    Ports Utilization:
+      Port ID: 0
+        Global Cycles: 334080
+        Idle Cycles: 200064
+        Utilization: 62.544931703810214
+      Port ID: 1
+        Global Cycles: 334080
+        Idle Cycles: 189696
+        Utilization: 63.78299120234604
+  Name: dedicated_mem_2
+    Size: 4194304
+    Width: 1024
+    Depth: 4096
+    Word Size: 8
+    Ports: 2
+    Bus Bitwidth: 32
+    Bandwidth per port: 6.400000e+00 Gbps
+    Total Bandwidth: 1.280000e+01 Gbps
+    Current Usage: 1757184
+    Utilized Capacity: 41.89%
+    Action Latency: 5.000000e-09
+    Cycles per Access: 1
+    Data Read Count: 7028736
+    Memory Block Read Count: 54912
+    Data Write Count: 1757184
+    Memory Block Write Count: 13728
+    Word Read Count: 7028736
+    Word Write Count: 1757184
+    Cache Miss Count: 1757184
+    Cache Miss Rate: 0.25
+    Cache Hit Rate: 0.75
+    Fragmented Bits: 0
+    Replacement Strategy: lru
+    Energy: 3.49981e-05 J
+    Area: 2.36649e+06 um^2
+    Ports Utilization:
+      Port ID: 0
+        Global Cycles: 329472
+        Idle Cycles: 190848
+        Utilization: 63.321033210332104
+      Port ID: 1
+        Global Cycles: 329472
+        Idle Cycles: 193536
+        Utilization: 62.99559471365639
+
+DRAM Statistics:
+  Name: offchip_mem_1
+    Size: -
+    Word Size: 8
+    Ports: 3
+    Bus Bitwidth: 32
+    Bandwidth per port: 4.571429e-01 Gbps
+    Total Bandwidth: 1.371429e+00 Gbps
+    Current Usage: -
+    Utilized Capacity: -
+    Action Latency: 7.000000e-08
+    Cycles per Access: 14
+    Data Read Count: 5346048
+    Memory Block Read Count: 41766
+    Data Write Count: 37632
+    Memory Block Write Count: 294
+    Word Read Count: 5346048
+    Word Write Count: 37632
+    Fragmented Bits: -
+    Energy: 0.000344559 J
+    Area: 0 um^2
+    Ports Utilization:
+      Port ID: 0
+        Global Cycles: 2149200
+        Idle Cycles: 1361952
+        Utilization: 61.21067957183284
+      Port ID: 1
+        Global Cycles: 2149200
+        Idle Cycles: 1464656
+        Utilization: 59.471102335012795
+      Port ID: 2
+        Global Cycles: 2149200
+        Idle Cycles: 1265632
+        Utilization: 62.93721038106707
+
+Matmul Block Statistics:
+  Name: comp_block0
+    Dimensions: (64, 64)
+    PEs: 4096
+    Pipeline Stages: 1
+    Cycles per MAC: 1
+    Peak FLOPs: 1.638400 TFLOPs
+    Peak MACs: 819.200000 GMACs
+    Operational Cycles: 2.040000e+05
+    Latency: 0.00102 s
+    Energy: 0.00071968 J
+    EDP (cycles): 10410.7 J.cycles
+    EDP (latency): 5.20537e-05 J.s
+    Area: 1.44156e+06 um^2
+    PEs Total Cycles: 8.355840e+08
+    PEs Computational Cycles: 4.058235e+08
+    PEs Idle Cycles: 4.297605e+08
+    PEs Accumulator Reads: 4.038572e+08
+    PEs Accumulator Writes: 4.058235e+08
+    Total MAC Computes: 405823488
+    Throughput: 795.732329 GFLOPs
+    Utilization: 48.567647%
+  Name: comp_block1
+    Dimensions: (64, 64)
+    PEs: 4096
+    Pipeline Stages: 1
+    Cycles per MAC: 1
+    Peak FLOPs: 1.638400 TFLOPs
+    Peak MACs: 819.200000 GMACs
+    Operational Cycles: 2.026520e+05
+    Latency: 0.00101326 s
+    Energy: 0.000715013 J
+    EDP (cycles): 10410.7 J.cycles
+    EDP (latency): 5.20537e-05 J.s
+    Area: 1.44156e+06 um^2
+    PEs Total Cycles: 8.300626e+08
+    PEs Computational Cycles: 4.057733e+08
+    PEs Idle Cycles: 4.242893e+08
+    PEs Accumulator Reads: 4.038329e+08
+    PEs Accumulator Writes: 4.057733e+08
+    Total MAC Computes: 405773312
+    Throughput: 800.926341 GFLOPs
+    Utilization: 48.884664%
+  Name: comp_block2
+    Dimensions: (64, 64)
+    PEs: 4096
+    Pipeline Stages: 1
+    Cycles per MAC: 1
+    Peak FLOPs: 1.638400 TFLOPs
+    Peak MACs: 819.200000 GMACs
+    Operational Cycles: 2.053480e+05
+    Latency: 0.00102674 s
+    Energy: 0.000724347 J
+    EDP (cycles): 10410.7 J.cycles
+    EDP (latency): 5.20537e-05 J.s
+    Area: 1.44156e+06 um^2
+    PEs Total Cycles: 8.411054e+08
+    PEs Computational Cycles: 4.058737e+08
+    PEs Idle Cycles: 4.352317e+08
+    PEs Accumulator Reads: 4.038815e+08
+    PEs Accumulator Writes: 4.058737e+08
+    Total MAC Computes: 405873664
+    Throughput: 790.606510 GFLOPs
+    Utilization: 48.254792%

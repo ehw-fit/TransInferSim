@@ -13,7 +13,7 @@ if __name__ == "__main__":
     """ MODEL/LAYER Specification """
     # NOTE: Currently no batch and bias supported during analysis
     model = ViTTiny()  #  ViTTiny chosen for faster execution here, change with any model/layer
-    print(model)
+    # print(model)
 
     """ HW Specification """
     # Below is a drawn view of the HW setup described below:
@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     """ ANALYZER """
     analyzer = Analyzer(model, accelerator, data_bitwidth=8)  # data bitwidth is currently considered uniform for all data tensors
-    analyzer.visualize_graph()
+    # analyzer.visualize_graph()
 
     """ SIMULATION """
     # None scheduling key == uniform distribution of compute operations across compute units

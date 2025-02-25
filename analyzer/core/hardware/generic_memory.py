@@ -219,24 +219,6 @@ class GenericMemory(ABC):
             idle_cycles_diff = max_cycle_count - cycle_list[0]
             cycle_list[0] = max_cycle_count
             cycle_list[1] += idle_cycles_diff
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     
     def query_lower_memories(self, read_mode, data_id, tile_shape=None, elems_to_read=None, offset=None):
         def get_lower_memory_path(mem):
@@ -249,7 +231,6 @@ class GenericMemory(ABC):
         mem_paths = OrderedDict()        
         for lower_mem in self.lower_level_memories:
             mem_paths[lower_mem] = get_lower_memory_path(lower_mem)
-        print(mem_paths)
 
         if read_mode == 'read_tile':
             if tile_shape is None or offset is None:
@@ -263,20 +244,16 @@ class GenericMemory(ABC):
         def traverse_and_check(mem, subpaths):
             """Recursively traverse memory paths to check for data presence."""
             # Check if data is found in the current memory
-            
-            
-            # TODO WHAT IF ONLY A PORTION IS THERE!!!! WE MUST READ PORTION...
+
+            # WHAT IF ONLY A PORTION IS THERE!!!! WE MUST READ PORTION...
             data_found, missing_data = check_presence(mem)
             if data_found:
-                print(f"Data '{data_id}' found in memory {mem.name}")
                 return mem
             else:
                 # Recursively check in the lower-level submemories
                 for lower_mem, lower_subpaths in subpaths.items():
-                    print(f"Checking submemory {lower_mem.name}")
                     mem_found = traverse_and_check(lower_mem, lower_subpaths)
                     if mem_found is not None:
-                        print(f"našlo se to yes... v {mem_found.name}")
                         return mem_found  # Data found in a lower memory
                 return None  # Data not found in any submemory
 
@@ -284,40 +261,13 @@ class GenericMemory(ABC):
         for mem, subpaths in mem_paths.items():
             #if data_id in mem.contents:
             #    print(f"Data '{data_id}' found in memory path starting from {mem.name}")
-            #    # TODO... IF WE FIND THAT DATA IS IN PARTICULAR PATH.. WE NEED TO GET IT FROM THAT PATH!
-            #
+            #    # IF WE FIND THAT DATA IS IN PARTICULAR PATH.. WE NEED TO GET IT FROM THAT PATH!
             
             mem_found = traverse_and_check(mem, subpaths)
             if mem_found is not None:
-                print(f"ano, '{data_id}' tak vracím dál.. {mem_found.name}")
                 return mem_found  # Data found in a lower memory
-                    
-                #print(f"Data '{data_id}' found in memory path starting from {mem.name}")
-                
-                # we should return the memory where the data reside... and then.. we basically must fetch data from the highest memory that has the data... into its upper memory... and as next event select this event still? the attempt to read?
-                #return True
-                
-                #print(f"Data '{data_id}' not found in memory path starting from {mem.name}")
-        
-        # TODO... ONLY WHEN ALL FAIL..  (I.E. DATA IS NOT PRESENT IN ANY OF THE LOWER MEMS.. WE SHOULD PASS THROUG WITH FALSE AND ACCESS FROM UPPER)
+        # ONLY WHEN ALL FAIL..  (I.E. DATA IS NOT PRESENT IN ANY OF THE LOWER MEMS.. WE SHOULD PASS THROUG WITH FALSE AND ACCESS FROM UPPER)
         return None
-            
-        
-
-            
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     def _initialize_presence_matrix(self, tensor_shape, values):
         """Initialize a presence matrix for the given tensor."""

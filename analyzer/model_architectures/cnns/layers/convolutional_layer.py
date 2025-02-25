@@ -5,7 +5,6 @@ class ConvolutionalLayer(Layer):
                  kernel_size: tuple, stride: tuple, padding: tuple,
                  batch_size: int, add_bias: bool, im2col: bool = True):
         super().__init__(name, batch_size, add_bias)
-        # Specific attributes for convolutional layers
         self.input_shape = input_shape  # (height_in, width_in, channels_in)
         self.output_channels = output_channels
         self.kernel_size = kernel_size  # (kernel_height, kernel_width)
@@ -14,19 +13,18 @@ class ConvolutionalLayer(Layer):
         self.im2col = im2col
 
         """ STATS """
-        # Calculate output dimensions
+        
         self.output_height = ((self.input_shape[0] - self.kernel_size[0] + 2 * self.padding[0]) // self.stride[0]) + 1
         self.output_width = ((self.input_shape[1] - self.kernel_size[1] + 2 * self.padding[1]) // self.stride[1]) + 1
         self.output_shape = (self.output_height, self.output_width, self.output_channels)
 
-        # Calculate the number of parameters (weights and biases)
+        # Calculate the number of parameters (weights and biases) and MAC ops
         kernel_height, kernel_width = self.kernel_size
         channels_in = self.input_shape[2]
         self.num_static_parameters = self.output_channels * channels_in * kernel_height * kernel_width
         if self.add_bias:
             self.num_static_parameters += self.output_channels  # One bias per output channel
-
-        # Calculate the number of MAC ops
+        
         self.num_macs = self.batch_size * self.output_channels * self.output_height * self.output_width * channels_in * kernel_height * kernel_width
 
         """ PARAMETERS AND EXECUTION PLAN """

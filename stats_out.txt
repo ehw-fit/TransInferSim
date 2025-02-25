@@ -40,33 +40,33 @@ Memory Block Statistics:
     Cache Hit Rate: 0.8117923794975092
     Fragmented Bits: 0
     Replacement Strategy: lru
-    Energy: 0.000316899 J
+    Energy: 0.000316898 J
     Area: 9.32018e+06 um^2
     Ports Utilization:
       Port ID: 0
         Global Cycles: 2839512
-        Idle Cycles: 2636632
-        Utilization: 51.85239832991974
+        Idle Cycles: 2648496
+        Utilization: 51.74030358556328
       Port ID: 1
         Global Cycles: 2839512
-        Idle Cycles: 2636296
-        Utilization: 51.855580034946435
+        Idle Cycles: 2621608
+        Utilization: 51.99504863471229
       Port ID: 2
         Global Cycles: 2839512
-        Idle Cycles: 2635128
-        Utilization: 51.866643286133886
+        Idle Cycles: 2621216
+        Utilization: 51.99878111489896
       Port ID: 3
         Global Cycles: 2839512
-        Idle Cycles: 2638456
-        Utilization: 51.83513302742915
+        Idle Cycles: 2642168
+        Utilization: 51.80003210694532
       Port ID: 4
         Global Cycles: 2839512
-        Idle Cycles: 2614376
-        Utilization: 52.063995446917865
+        Idle Cycles: 2634560
+        Utilization: 51.872025066531826
       Port ID: 5
         Global Cycles: 2839512
-        Idle Cycles: 2636584
-        Utilization: 51.85285283530456
+        Idle Cycles: 2629424
+        Utilization: 51.92073924434296
   Name: dedicated_mem_0
     Size: 4194304
     Width: 1024
@@ -96,12 +96,12 @@ Memory Block Statistics:
     Ports Utilization:
       Port ID: 0
         Global Cycles: 331776
-        Idle Cycles: 195072
-        Utilization: 62.973760932944614
+        Idle Cycles: 203904
+        Utilization: 61.935483870967744
       Port ID: 1
         Global Cycles: 331776
-        Idle Cycles: 192000
-        Utilization: 63.34310850439883
+        Idle Cycles: 183168
+        Utilization: 64.42953020134227
   Name: dedicated_mem_1
     Size: 4194304
     Width: 1024
@@ -131,12 +131,12 @@ Memory Block Statistics:
     Ports Utilization:
       Port ID: 0
         Global Cycles: 334080
-        Idle Cycles: 200064
-        Utilization: 62.544931703810214
+        Idle Cycles: 176256
+        Utilization: 65.46275395033861
       Port ID: 1
         Global Cycles: 334080
-        Idle Cycles: 189696
-        Utilization: 63.78299120234604
+        Idle Cycles: 213504
+        Utilization: 61.00981767180925
   Name: dedicated_mem_2
     Size: 4194304
     Width: 1024
@@ -161,17 +161,17 @@ Memory Block Statistics:
     Cache Hit Rate: 0.75
     Fragmented Bits: 0
     Replacement Strategy: lru
-    Energy: 3.49981e-05 J
+    Energy: 3.49982e-05 J
     Area: 2.36649e+06 um^2
     Ports Utilization:
       Port ID: 0
         Global Cycles: 329472
-        Idle Cycles: 190848
-        Utilization: 63.321033210332104
+        Idle Cycles: 190080
+        Utilization: 63.41463414634146
       Port ID: 1
         Global Cycles: 329472
-        Idle Cycles: 193536
-        Utilization: 62.99559471365639
+        Idle Cycles: 194304
+        Utilization: 62.903225806451616
 
 DRAM Statistics:
   Name: offchip_mem_1
@@ -197,16 +197,16 @@ DRAM Statistics:
     Ports Utilization:
       Port ID: 0
         Global Cycles: 2149200
-        Idle Cycles: 1361952
-        Utilization: 61.21067957183284
+        Idle Cycles: 1398016
+        Utilization: 60.5883599983762
       Port ID: 1
         Global Cycles: 2149200
-        Idle Cycles: 1464656
-        Utilization: 59.471102335012795
+        Idle Cycles: 1360384
+        Utilization: 61.23802707101469
       Port ID: 2
         Global Cycles: 2149200
-        Idle Cycles: 1265632
-        Utilization: 62.93721038106707
+        Idle Cycles: 1333840
+        Utilization: 61.70471771785566
 
 Matmul Block Statistics:
   Name: comp_block0

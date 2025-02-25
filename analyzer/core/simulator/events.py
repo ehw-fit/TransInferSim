@@ -81,14 +81,6 @@ class MemoryReadEvent(AbstractEvent):
                 scheduler.schedule_event(self.event_time, memory_op)
 
 
-
-
-
-
-
-
-
-
             # Fetch data (here and in fetch event)
             # TODO .. first recursively query lower mems... check their contents.. if data not present somewhere in some branch...
             # it should be a dict belonging to the memory.. where key is the data ID..
@@ -108,23 +100,15 @@ class MemoryReadEvent(AbstractEvent):
             # if still not all data.. go fetch from upper.. at that point it must succeed!
             
             
-            
-            
-            print("fetch here")
             # First try fetching from lower-level memories
             # TODO.. query the lower memory paths... the one which contains the data... should schedule cascade of fetches to reach this mem level!
             mem_found = self.memory.query_lower_memories(read_mode="read_tile", data_id=self.data_id, tile_shape=self.tile_shape, offset=self.offset)
-            #self.memory.upper_level_memory.query_lower_memories(read_mode="read_tile", data_id=self.data_id, tile_shape=self.tile_shape, offset=self.offset)
-            #exit()
             
             if mem_found is not None:  # some lower branch.. retrieve:
-                print(f"lower branch yes:  {mem_found.name}")
                 # TODO TEST AND ADDRESS PARTIAL FETCHES!
                 scheduler.schedule_event(self.event_time, MemoryFetchEvent(self.data_id, self.data_bitwidth, self.tensor_shape, missing_data, missing_data_offset, mem_found, mem_found.upper_level_memory, self.final_operation, self, verbose=self.verbose))
-                pass
             # If not recursively present in any lower memory, try accessing the data from higher-level memory
             else:
-                print(f"upper mem retrieve...  {self.memory.upper_level_memory.name}")
                 if self.memory.upper_level_memory:
                     if self.verbose:
                         print(f"Scheduled fetch of {self.data_id} from {self.memory.upper_level_memory.name} to {self.memory.name}.")
@@ -132,35 +116,6 @@ class MemoryReadEvent(AbstractEvent):
                 else:
                     if self.verbose:
                         print(f"Failed to fetch {self.data_id} from {self.memory.name}'s upper memory - no upper memory found containing this data.")
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 class MemoryReadCompleteEvent(AbstractEvent):
@@ -303,25 +258,16 @@ class MemoryFetchEvent(AbstractEvent):
                 scheduler.schedule_event(self.event_time, dest_memory_op)
 
 
-
-
-
-            print("fetch here")
             # First try fetching from lower-level memories
             # TODO.. query the lower memory paths... the one which contains the data... should schedule cascade of fetches to reach this mem level!
             mem_found = self.src_memory.query_lower_memories(read_mode="read_tile", data_id=self.data_id, tile_shape=self.tile_shape, offset=self.offset)
-            #self.memory.upper_level_memory.query_lower_memories(read_mode="read_tile", data_id=self.data_id, tile_shape=self.tile_shape, offset=self.offset)
-            #exit()
             
             if mem_found is not None:  # some lower branch.. retrieve:
-                print(f"lower SECOND branch yes:  {mem_found.name}")
-                pass
                 # TODO TEST AND ADDRESS PARTIAL FETCHES!
                 scheduler.schedule_event(self.event_time, MemoryFetchEvent(self.data_id, self.data_bitwidth, self.tensor_shape, missing_data, missing_data_offset, mem_found, mem_found.upper_level_memory, self.final_operation, self, verbose=self.verbose))
             
             # If not recursively present in any lower memory, try accessing the data from higher-level memory
             else:
-                print(f"upper SECOND mem retrieve...  {self.src_memory.upper_level_memory.name}")
                 if self.src_memory.upper_level_memory:
                     if self.verbose:
                         print(f"Scheduled fetch of {self.data_id} from {self.src_memory.upper_level_memory.name} to {self.src_memory.name}.")
@@ -329,12 +275,6 @@ class MemoryFetchEvent(AbstractEvent):
                 else:
                     if self.verbose:
                         print(f"Failed to fetch {self.data_id} from {self.src_memory.name}'s upper memory - no upper memory found containing this data.")
-
-
-
-
-
-
 
 
 class MemoryFetchCompleteEvent(AbstractEvent):

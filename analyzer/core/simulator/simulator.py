@@ -132,6 +132,6 @@ class StaticSimulationEngine(AbstractSimulationEngine):
             print("<ANALYSIS PHASE 3: SIMULATION COMPLETED>")
 
 
-# USE PYMOO HERE ? TO IMPLEMENT NSGA-II
+# TODO
 class GeneticAlgorithmSimulationEngine(AbstractSimulationEngine):
     pass

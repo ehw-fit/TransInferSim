@@ -12,7 +12,7 @@ class ViTBase(TransformerModel):
 
         # Add encoder layers
         for i in range(1, num_layers+1):
-            self.add_layer(Encoder(f"encoder_layer_{i}", self.num_patches, embedding_dim, ffn_layer_dim, num_heads, batch_size, add_bias, **kwargs))
+            self.add_layer(Encoder(f"encoder_layer_{i}", self.num_patches, embedding_dim, ffn_layer_dim, num_heads, batch_size, add_bias, self, **kwargs))
         
         self.num_static_parameters = sum(l.num_static_parameters for l in self.layers)
         self.num_macs = sum(l.num_macs for l in self.layers)

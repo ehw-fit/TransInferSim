@@ -2,29 +2,20 @@ from analyzer.core.model_architectures.transformer_blocks.layer import Transform
 from .self_attention import SelfAttention
 
 class MultiHeadSelfAttention(TransformerLayer):
-    def __init__(self, name: str = "mhsa", sequence_length: int = 256, embedding_dim: int = 768, num_heads: int = 12, batch_size: int = 1, add_bias: bool = False, **kwargs):
-        super().__init__(name, sequence_length, embedding_dim, embedding_dim, batch_size, add_bias, **kwargs)
+    def __init__(self, name: str = "mhsa", sequence_length: int = 256, embedding_dim: int = 768, num_heads: int = 12, batch_size: int = 1, add_bias: bool = False, parent: object = None, **kwargs):
+        super().__init__(name, sequence_length, embedding_dim, embedding_dim, batch_size, add_bias, parent, **kwargs)
         assert num_heads > 0
-        self.num_heads = num_heads
-        # Single-head: MHSA reduces down to a single SelfAttention instance
-        if self.num_heads == 1:
-            self.self_attention = SelfAttention(f"{name}_head_1", sequence_length, embedding_dim, embedding_dim, batch_size, add_bias, **kwargs)
-            self.parameters = self.self_attention.parameters
-            self.num_static_parameters = self.self_attention.num_static_parameters
-            self.num_macs = self.self_attention.num_macs
-            self.plan = self.self_attention.plan
-            return
-
-        head_dim = embedding_dim  // num_heads
         assert embedding_dim % num_heads == 0, "Embedding dimension must be divisible by the number of heads."
+        self.num_heads = num_heads
+        head_dim = embedding_dim  // num_heads
 
         # Init multiple self-attention heads (sub-layers)
         for k in range(1, num_heads+1):
-            self.add_layer(SelfAttention(f"{name}_head_{k}", sequence_length, embedding_dim, head_dim, batch_size, add_bias, **kwargs))
+            self.add_layer(SelfAttention(f"{name}_head_{k}", sequence_length, embedding_dim, head_dim, batch_size, add_bias, self, **kwargs))
 
         """ STATS """
         # Calculate total parameters by summing parameters of all heads and adding the output projection
-        out_proj_parameters = embedding_dim * embedding_dim + embedding_dim if add_bias else embedding_dim * embedding_dim
+        out_proj_parameters = embedding_dim * embedding_dim + (embedding_dim if add_bias else 0)
         self.num_static_parameters = sum(h.num_static_parameters for h in self.layers) + out_proj_parameters
         # Calculate total computations
         self.num_macs = sum(h.num_macs for h in self.layers) + batch_size * sequence_length * embedding_dim * embedding_dim
@@ -34,10 +25,6 @@ class MultiHeadSelfAttention(TransformerLayer):
         # TODO now we ignore softmax (attention scores are the result of softmax on query ⋅ key) and layer normalizations
         self.parameters = self.define_parameters()
         self.plan = self.define_plan()
-
-    def __str__(self):
-        base_str = super().__str__()
-        return f"{base_str[:-1]} Heads: {self.num_heads}>"
     
     def define_parameters(self):
         """Aggregate parameters from all heads and include output projection parameters for the multi head self attention layer."""

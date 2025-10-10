@@ -6,7 +6,22 @@ from collections import OrderedDict
 
 
 class GenericMemory(ABC):
-    """Abstract class for a generic memory block."""
+    """Generic abstract class for a generic memory block.
+    
+    Args:
+        name (str): The name of the memory block.
+        width (int): Width of each entry in the array, (in bits per entry).
+        depth (int): Number of addressable entries (array depth, in entries).
+        bus_bitwidth (int): Width of the memory bus per transfer, (in bits per beat).
+        action_latency (float): Latency of a memory action, in (seconds per access, based on technology node).
+        cycle_time (float): Accelerator cycle time, (in seconds per cycle).
+        ports (int): Number of independent r/w access ports supported by the memory (≥1). (Defaults to 1)
+        word_size (int): Size of one memory word (in bits). (Defaults to 8)
+        replacement_strategy (str): Policy for evicting/replacing memory contents. (Defaults to random)
+        parent_component (Any): Optional reference to the parent HW component in the hierarchy. (Defaults to None)
+        accelergy_class (str): Accelergy class name for energy/area modeling. (Defaults to "")    
+    """
+    
     def __init__(self, width: int, depth: int, bus_bitwidth: int, action_latency: float, cycle_time: float, ports: int = 1, word_size: int = 8, name: str = "generic_memory", replacement_strategy = "random", parent_component = None, accelergy_class = ""):
         assert bus_bitwidth >= word_size, f"Bus bitwidth must be greater than or equal to word size for {self.__class__.__name__}."
         assert word_size % 2 == 0, f"Word size must be a multiple of 2 for {self.__class__.__name__}."
@@ -21,18 +36,21 @@ class GenericMemory(ABC):
         self.width = width
         self.depth = depth
         self.size = width * depth
+        self.words_capacity = self.size // word_size
         self.cycle_time = cycle_time  # Accelerator cycle time
         self.parent_component = parent_component
         self._auto_interconnect_set = False  # Used for auto interconnection feature between other HW components to avoid repated interconnetct
 
         # Functional characteristics
         self.word_size = word_size
-        self.block_size = width // word_size  # Affects number of words accessed by one memory read/write operation
+        self.row_words = math.ceil(width / word_size)  # Affects number of words accessed by one memory read/write operation
         self.ports = ports
         self.action_latency = action_latency
         self.mem_access_cycles = int(math.ceil(self.action_latency / self.cycle_time))
         self.bus_bitwidth = bus_bitwidth
-        self.bandwidth_per_port = self.bus_bitwidth / (self.mem_access_cycles * self.cycle_time)  # in bits per second
+        # Peak transfers per second on one port (TODO add ddr factor etc.) TODO REFACTOR..
+        beats_per_second = 1 / self.cycle_time          # now same as core frequency
+        self.bandwidth_per_port = self.bus_bitwidth * beats_per_second
         self.total_bandwidth = self.bandwidth_per_port * self.ports
 
         # Accelergy attributes
@@ -71,7 +89,7 @@ class GenericMemory(ABC):
     def __str__(self):
         return (f"<class={self.__class__.__name__} name={self.name}| "
                 f"Size: {self.size}({self.depth}x{self.width}) "
-                f"Block Size: {self.block_size} "
+                f"Words per Row: {self.row_words} "
                 f"Wordsize: {self.word_size} bits "
                 f"Bus bitwidth: {self.bus_bitwidth} "
                 f"Action latency: {self.action_latency} s "
@@ -193,11 +211,11 @@ class GenericMemory(ABC):
         if data_id in self.free_locks:
             del self.free_locks[data_id]
 
-    def get_available_port(self):
+    def get_available_port(self, deterministic_key):
         """
         Finds the port with the minimum global cycles, randomly chooses one if there are more and returns the port ID.
         """
-        local_random = random.Random()
+        local_random = random.Random(deterministic_key) if deterministic_key is not None else random.Random()
         min_cycle_count = min(self.cycles_per_ports[port][0] for port in self.available_ports)
         port = local_random.choice([p for p in self.available_ports if self.cycles_per_ports[p][0] == min_cycle_count])
         self.available_ports.remove(port)
@@ -232,42 +250,47 @@ class GenericMemory(ABC):
         for lower_mem in self.lower_level_memories:
             mem_paths[lower_mem] = get_lower_memory_path(lower_mem)
 
-        if read_mode == 'read_tile':
-            if tile_shape is None or offset is None:
-                raise ValueError(f"tile_shape and offset must be provided for 'read_tile' mode in data query operation for {self.name} memory.")
-            check_presence = lambda mem: mem._check_tile_presence(data_id, tile_shape, offset)
-        else:  # read continuous
-            if elems_to_read is None or offset is None:
-                raise ValueError(f"elems_to_read and offset must be provided for 'read_elements' mode in data query operation for {self.name} memory.")
-            check_presence = lambda mem: mem._check_data_presence(data_id, elems_to_read, offset)
-
-        def traverse_and_check(mem, subpaths):
+        def traverse_and_check(data_id, tile_shape, elems_to_read, offset, mem, subpaths):
             """Recursively traverse memory paths to check for data presence."""
-            # Check if data is found in the current memory
+            if read_mode == 'read_tile':
+                if tile_shape is None or offset is None:
+                    raise ValueError(f"tile_shape and offset must be provided for 'read_tile' mode in data query operation for {self.name} memory.")
+                check_presence = lambda mem: mem._check_tile_presence(data_id, tile_shape, offset)
+            else:  # read continuous
+                if elems_to_read is None or offset is None:
+                    raise ValueError(f"elems_to_read and offset must be provided for 'read_elements' mode in data query operation for {self.name} memory.")
+                check_presence = lambda mem: mem._check_data_presence(data_id, elems_to_read, offset)
 
-            # WHAT IF ONLY A PORTION IS THERE!!!! WE MUST READ PORTION...
             data_found, missing_data = check_presence(mem)
+            
+            # If all required data are found in the current memory    
             if data_found:
-                return mem
+                return data_found, missing_data
             else:
-                # Recursively check in the lower-level submemories
-                for lower_mem, lower_subpaths in subpaths.items():
-                    mem_found = traverse_and_check(lower_mem, lower_subpaths)
-                    if mem_found is not None:
-                        return mem_found  # Data found in a lower memory
-                return None  # Data not found in any submemory
+                if read_mode == "read_tile":
+                    tile_shape, offset = missing_data
+                else:
+                    elems_to_read, offset = missing_data
+
+                for submem, subsubpaths in subpaths.items():
+                    data_found, missing_data = traverse_and_check(data_id, tile_shape, elems_to_read, offset, submem, subsubpaths)
+                return data_found, missing_data
 
         # Traverse the memory paths to find where is the data ID with its specific tile/amount present
         for mem, subpaths in mem_paths.items():
-            #if data_id in mem.contents:
-            #    print(f"Data '{data_id}' found in memory path starting from {mem.name}")
-            #    # IF WE FIND THAT DATA IS IN PARTICULAR PATH.. WE NEED TO GET IT FROM THAT PATH!
-            
-            mem_found = traverse_and_check(mem, subpaths)
-            if mem_found is not None:
-                return mem_found  # Data found in a lower memory
-        # ONLY WHEN ALL FAIL..  (I.E. DATA IS NOT PRESENT IN ANY OF THE LOWER MEMS.. WE SHOULD PASS THROUG WITH FALSE AND ACCESS FROM UPPER)
-        return None
+            mem_found, missing_data = traverse_and_check(data_id, tile_shape, elems_to_read, offset, mem, subpaths)
+
+            if mem_found:
+                if read_mode == "read_tile":
+                    return mem, (tile_shape, offset)
+                else:
+                    return mem, (elems_to_read, offset)
+            else:
+                if read_mode == "read_tile":
+                    tile_shape, offset = missing_data
+                else:
+                    elems_to_read, offset = missing_data
+        return None, (tile_shape, offset) if read_mode == "read_tile" else (elems_to_read, offset)
 
     def _initialize_presence_matrix(self, tensor_shape, values):
         """Initialize a presence matrix for the given tensor."""
@@ -354,6 +377,8 @@ class GenericMemory(ABC):
 
         data_metadata = self.contents[data_id]
         presence_matrix = data_metadata['presence_matrix']
+        end_row = min(end_row, presence_matrix.shape[0])  # Clamping to ensure we don't go out of bounds
+        end_col = min(end_col, presence_matrix.shape[1])  # Clamping to ensure we don't go out of bounds
 
         # Check if the whole tile is marked as present in the presence_matrix
         if presence_matrix[start_row:end_row, start_col:end_col].all():
@@ -374,7 +399,7 @@ class GenericMemory(ABC):
                             # Else return the current row's missing elements vector
                             else:
                                 contiguous_false_count = 0
-                                for row_col in range(col, end_col): 
+                                for row_col in range(col, end_col):
                                     if presence_matrix[row, row_col]:  # The row always starts with missing elems, if we find an elem, we stop
                                         return False, ((1, contiguous_false_count), (row, col))
                                     else:
@@ -426,7 +451,7 @@ class GenericMemory(ABC):
             start_col = 0  # Reset start_col to 0 for the next row (starting from start_row+1)
         return False, (elems_to_check, offset)
 
-    def _determine_victim_shape_and_offset(self, victim_data_id, max_num_words):
+    def _determine_victim_shape_and_offset(self, victim_data_id, max_num_words, tensors_needed_info):
         """
         Determine the number of elements to be freed from the victim presence matrix 
         along with its data shape (cointiguous block or tile) and starting offset.
@@ -434,6 +459,7 @@ class GenericMemory(ABC):
         Args:
             victim_data_id (str): Name of the victim data.
             max_num_words (int): Number of words required to be freed in total.
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.
 
         Returns:
             tuple: (layout_type, layout_info (tuple or int), offset (tuple))
@@ -441,15 +467,32 @@ class GenericMemory(ABC):
                 - data_layout: Shape of the tile as (rows, cols) or number of contiguous elements.
                 - offset: Starting point (row, col) for freeing.
         """
+        
         data_metadata = self.contents[victim_data_id]
-        presence_matrix = data_metadata['presence_matrix']
-        _, cols = presence_matrix.shape
         elements_per_word = self.word_size // data_metadata['data_bitwidth']
         max_elems_to_erase = max_num_words * elements_per_word
+        presence_matrix = data_metadata['presence_matrix']
 
+        # If the victim data has some tiles needed for a pending operation, we must not free them
+        if tensors_needed_info.is_in_memory(victim_data_id, self.name):
+            tiles = tensors_needed_info.get()[victim_data_id]["tiles"][self.name]
+            mask = np.zeros_like(data_metadata['presence_matrix'], dtype=bool)
+            parse_tile_key = lambda k: tuple(map(lambda s: tuple(map(int, s.split('x'))), k.split('_')))
+            for tile_key in tiles.keys():
+                tile_shape, offset = parse_tile_key(tile_key)
+                tile_h, tile_w = tile_shape
+                start_row, start_col = offset
+                end_row = start_row + tile_h
+                end_col = start_col + tile_w
+    
+                mask[start_row:end_row, start_col:end_col] = True
+            subtiles_presence = np.logical_and(data_metadata['presence_matrix'], mask)
+            presence_matrix = np.logical_xor(data_metadata['presence_matrix'], subtiles_presence)
+
+        _, cols = presence_matrix.shape
         last_true_indices = np.argwhere(presence_matrix)
         assert last_true_indices.size > 0, "Internal error! No True values found in the victim presence matrix, this should not happen."
-
+        
         last_row_with_data = last_true_indices[-1][0]
         last_col_with_data = last_true_indices[-1][1]
 
@@ -569,13 +612,14 @@ class GenericMemory(ABC):
         assert presence_matrix[start_row:end_row, start_col:end_col].sum() == (tile_shape[0] * tile_shape[1]), "The sum of True values in the presence matrix tile does not match the tile size"
         presence_matrix[start_row:end_row, start_col:end_col] = False
 
-    def read(self, read_mode, data_id, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_read=None, offset=None):
+    def read(self, read_mode, data_id, data_category, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_read=None, offset=None):
         """
         Read data from memory, either as a specific tile or a number of elements.
 
         Args:
             read_mode (str): Read mode for the memory block. Either 'read_elements' and 'read_tile' are supported.
             data_id (str): Identifier for the data.
+            data_category (str): Identifier for 'static' or 'dynamic' data tensor.
             tensor_shape (tuple): Shape of the whole tensor to be read from memory, defined as (rows, cols).
             data_bitwidth (int): Bitwidth of the data elements to be read from memory.
             port_id (int): ID of port used for retrieval of the data.
@@ -594,6 +638,7 @@ class GenericMemory(ABC):
         """
         if data_id not in self.contents:
             self.contents[data_id] = {
+                'data_category': data_category,
                 'presence_matrix': self._initialize_presence_matrix(tensor_shape, 0),
                 'data_amount': 0,
                 'data_read_count': 0,
@@ -627,17 +672,18 @@ class GenericMemory(ABC):
                 tile_rows, tile_cols = tile_shape
                 elements_per_word = self.word_size // data_bitwidth
                 mem_words = math.ceil(tile_rows * tile_cols / elements_per_word)
-                mem_reads = int(math.ceil(mem_words / self.block_size))
+                bus_transfers = int(math.ceil((mem_words * self.word_size) / self.bus_bitwidth))
 
                 self.data_read_count += tile_rows * tile_cols
                 self.word_read_count += mem_words
-                self.mem_read_count += mem_reads
+                self.mem_read_count += bus_transfers
 
                 data_metadata['data_read_count'] += tile_rows * tile_cols
                 data_metadata['word_read_count'] += mem_words
-                data_metadata['mem_read_count'] += mem_reads
+                data_metadata['mem_read_count'] += bus_transfers
 
-                cycles = math.ceil((mem_reads * self.block_size) / self.bus_bitwidth) * self.mem_access_cycles
+                # TODO analyze srams, if there is overlap, then max should be here instead of addition?
+                cycles = self.mem_access_cycles + bus_transfers  # one-time access cost + burst bus transfers
                 data_metadata['last_access_time'] = self.cycles_per_ports[port_id][0] + cycles
                 return True, cycles
             else:
@@ -656,17 +702,18 @@ class GenericMemory(ABC):
             if data_found:
                 elements_per_word = self.word_size // data_bitwidth
                 mem_words = math.ceil(elems_to_read / elements_per_word)
-                mem_reads = int(math.ceil(mem_words / self.block_size))
+                bus_transfers = int(math.ceil((mem_words * self.word_size) / self.bus_bitwidth))
 
                 self.data_read_count += elems_to_read
                 self.word_read_count += mem_words
-                self.mem_read_count += mem_reads
+                self.mem_read_count += bus_transfers
 
                 data_metadata['data_read_count'] += elems_to_read
                 data_metadata['word_read_count'] += mem_words
-                data_metadata['mem_write_count'] += mem_reads
+                data_metadata['mem_read_count'] += bus_transfers
 
-                cycles = math.ceil((mem_reads * self.block_size) / self.bus_bitwidth) * self.mem_access_cycles
+                # TODO analyze srams, if there is overlap, then max should be here instead of addition?
+                cycles = self.mem_access_cycles + bus_transfers  # one-time access cost + burst bus transfers
                 data_metadata['last_access_time'] = self.cycles_per_ports[port_id][0] + cycles
                 return True, cycles
             else:
@@ -679,20 +726,22 @@ class GenericMemory(ABC):
         else:
             raise ValueError(f"Unknown read mode: {read_mode} requested from memory {self.name}. Supported modes are 'read_elements' and 'read_tile'.")
 
-    def write(self, write_mode, data_id, tensor_shape, data_bitwidth, port_id, tensors_needed_info, tile_shape=None, elems_to_write=None, offset=None, verbose=False):
+    def write(self, write_mode, data_id, data_category, tensor_shape, data_bitwidth, port_id, tensors_needed_info, tile_shape=None, elems_to_write=None, offset=None, deterministic_key=None, verbose=False):
         """
         Write data to memory, either as a specific tile or a number of elements.
         
         Args:
             write_mode (str): Write mode for the memory block. Either 'write_elements' and 'write_tile' are supported.
             data_id (str): Identifier for the data.
+            data_category (str): Identifier for 'static' or 'dynamic' data tensor.
             tensor_shape (tuple): Shape of the whole tensor to be written to memory, defined as (rows, cols).
             data_bitwidth (int): Bitwidth of the data elements to be written to memory.
             port_id (int): ID of port used for storing the data.
-            tensors_needed_info TODO
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.
             tile_shape (tuple): Shape of the tile to write, defined as (tile_rows, tile_cols). Used only in 'write_tile' mode.
             elems_to_write (int): Number of elements to write to memory. Used only in 'write_elements' mode.
             offset (tuple): Offset within the data, as (row_offset, col_offset).
+            deterministic_key (int): Specifies whether to always deterministically choose a victim (None is passed for non-deterministic execution).
             verbose (bool): If True, prints detailed information about the write process.
 
         Returns:
@@ -707,6 +756,7 @@ class GenericMemory(ABC):
         """
         if data_id not in self.contents:
             self.contents[data_id] = {
+                'data_category': data_category,
                 'presence_matrix': self._initialize_presence_matrix(tensor_shape, 0),
                 'data_amount': 0,
                 'data_read_count': 0,
@@ -734,7 +784,7 @@ class GenericMemory(ABC):
 
             # Check if the data can fit in memory at all
             total_words_required = math.ceil(tile_shape[0] * tile_shape[1] / elements_per_word)
-            assert total_words_required <= self.size, f"Data {data_id} too large ({total_words_required} words) to fit in memory of size {self.size} words."
+            assert total_words_required <= self.words_capacity, f"Data {data_id} too large ({total_words_required} words) to fit in memory of size {self.words_capacity} words ({self.size} b)."
 
             # Calculate the required amount of elements needed to be written into memory
             new_elements = self._update_presence_matrix(mode="tile", data_metadata=data_metadata, offset=offset, tile_shape=tile_shape, inplace=False)
@@ -744,7 +794,7 @@ class GenericMemory(ABC):
 
             # Check if the data can fit in memory at all
             total_words_required = math.ceil(elems_to_write / elements_per_word)
-            assert total_words_required <= self.size, f"Data {data_id} too large ({total_words_required} words) to fit in memory of size {self.size} words."
+            assert total_words_required <= self.words_capacity, f"Data {data_id} too large ({total_words_required} words) to fit in memory of size {self.words_capacity} words ({self.size} b)."
             
             # Calculate the required amount of elements needed to be written into memory
             new_elements = self._update_presence_matrix(mode="elements", data_metadata=data_metadata, offset=offset, elems_to_write=elems_to_write, inplace=False)
@@ -755,26 +805,25 @@ class GenericMemory(ABC):
         write_mem_words = math.ceil(new_elements / elements_per_word)
 
         # Memory full, we need to free some space before writing the data
-        if self.current_usage + write_mem_words > self.size:
+        if self.current_usage + write_mem_words > self.words_capacity:
             assert self.replacement_strategy is not None, f"Memory '{self.name}' is full and has no replacement strategy defined! Define it during instantiation and re-run."
-            words_to_free = (self.current_usage + write_mem_words) - self.size
+            words_to_free = (self.current_usage + write_mem_words) - self.words_capacity
             if verbose:
                 print(f"Not enough space for write of data '{data_id}' into memory '{self.name}'. Need space for {words_to_free} words. Finding a victim data to free space.")
 
             while words_to_free != 0:
-                replacement_result = self._apply_replacement_strategy(words_to_free, tensors_needed_info, verbose)
+                replacement_result = self._apply_replacement_strategy(words_to_free, tensors_needed_info, verbose, deterministic_key)
                 # No valid data found for replacement now, we need to reschedule this operation
                 # (some other event may be writing back the only possible data id and no other event can at the same time)
                 if replacement_result is None:
                     return False, None
-    
-                replacement_outcome, victim_data_id, victim_tensor_shape, victim_layout_info, victim_layout_type, victim_offset, victim_data_bitwidth, victim_words = replacement_result
-            
+
+                replacement_outcome, victim_data_id, victim_data_category, victim_tensor_shape, victim_layout_info, victim_layout_type, victim_offset, victim_data_bitwidth, victim_words = replacement_result
 
                 if replacement_outcome == "write_back":
                     self.free_locks[victim_data_id] = []
                     # Return to Discrete Simulation events and proceed with write-back (this write operation will be rescheduled)
-                    return False, (victim_data_id, victim_tensor_shape, victim_layout_info, victim_layout_type, victim_offset, victim_data_bitwidth)
+                    return False, (victim_data_id, victim_data_category, victim_tensor_shape, victim_layout_info, victim_layout_type, victim_offset, victim_data_bitwidth)
                 else:  # Proceed with freeing the data.. no need for writ/back (either the data are not important anymore or are already present in the upper memory)
                     self.free(victim_data_id, victim_layout_info, victim_layout_type, victim_words, victim_offset, tensors_needed_info)
                     # self.unlock_free_lock(victim_data_id)
@@ -789,22 +838,23 @@ class GenericMemory(ABC):
         data_bits = new_elements * data_bitwidth
         word_bits = write_mem_words * self.word_size
         fragmented_bits = word_bits - data_bits
-        mem_writes = int(math.ceil(write_mem_words / self.block_size))
+        bus_transfers = int(math.ceil((write_mem_words * self.word_size) / self.bus_bitwidth))
 
         data_metadata['data_amount'] += new_elements
         data_metadata['data_write_count'] += new_elements
         data_metadata['word_amount'] += write_mem_words
         data_metadata['word_write_count'] += write_mem_words
-        data_metadata['mem_write_count'] += mem_writes
+        data_metadata['mem_write_count'] += bus_transfers
         data_metadata['fragmented_bits'] += fragmented_bits
 
         self.current_usage += write_mem_words
         self.data_write_count += new_elements
         self.word_write_count += write_mem_words
-        self.mem_write_count += mem_writes
+        self.mem_write_count += bus_transfers
         self.fragmented_bits += fragmented_bits
 
-        cycles = math.ceil((mem_writes * self.block_size) / self.bus_bitwidth) * self.mem_access_cycles
+        # TODO analyze srams, if there is overlap, then max should be here instead of addition?
+        cycles = self.mem_access_cycles + bus_transfers  # one-time access cost + burst bus transfers
         data_metadata['insertion_time'] = self.cycles_per_ports[port_id][0] if data_metadata['insertion_time'] == 0 else data_metadata['insertion_time']
         data_metadata['last_access_time'] = self.cycles_per_ports[port_id][0] + cycles
         return True, cycles
@@ -838,6 +888,7 @@ class GenericMemory(ABC):
                     'tensor_shape': tensor_shape,
                     'tile_shape': tile_shape,
                     'offset': offset,
+                    #'max_tiles': math.ceil((tensor_shape[0] * tensor_shape[1]) / (tile_shape[0] * tile_shape[1])),
                     'count': 1
                 }
         # If the data_id is not already tracked, manage the dictionary to keep only the last two reads
@@ -852,64 +903,102 @@ class GenericMemory(ABC):
                 'tensor_shape': tensor_shape,
                 'tile_shape': tile_shape,
                 'offset': offset,
+                #'max_tiles': math.ceil((tensor_shape[0] * tensor_shape[1]) / (tile_shape[0] * tile_shape[1])),
                 'count': 1
             }
 
         # Check for potential memory thrashing
         if len(self.last_reads) == 2:
             read_counts = list(self.last_reads.values())
-            # Check if both reads have occurred 20 times or more
-            if all(read['count'] >= 20 for read in read_counts):
-                print("Memory thrashing detected: Both last memory fetch operations have occurred 20 times or more.")
+            # Check if both reads have occurred many times to CONFIDENTLY CAPTURE MEMORY THRASHING!
+            # TODO HOW TO CONFIDENTLY DETERMINE THE AMOUNT FOR DETECTION? (because its not deducible only by tensor dims and mem size, but also by all the other mem events fighting over and potentially throwing one another out)
+            if all(read['count'] > 5000 for read in read_counts):
+                for i, read in enumerate(read_counts):
+                    print(f"Memory thrashing detected: One of the last two memory fetches (for data_id: '{list(self.last_reads.keys())[i]}') have occurred {read['count']} times back to back.")
                 return True
-
         return False
 
-    def _apply_replacement_strategy(self, free_mem_words, tensors_needed_info, verbose):
+    def _apply_replacement_strategy(self, free_mem_words, tensors_needed_info, verbose, deterministic_key):
         """
         Applies the configured replacement strategy to free up the necessary space in memory.
 
         Args:
             free_mem_words (int): The number of memory words that need to be freed.
-            tensors_needed_info TODO
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.
             verbose (bool): If True, prints details about the replacement process.
+            deterministic_key (int): Specifies whether to always deterministically choose a victim (None is passed for non-deterministic execution).
         
         Returns:
-            # TODO
-            tuple: (replacement_outcome (str), victim_data_id (str), victim_data_elems (int), victim_offset (tuple), data_bitwidth (int))
+            tuple or None: If a victim is found, returns a tuple containing:
+                - replacement_outcome (str): The outcome of the replacement process ('success' or 'failure').
+                - victim_data_id (str): Identifier for the evicted data.
+                - victim_data_elems (int): Number of elements evicted.
+                - victim_offset (tuple): Offset within the evicted data, as (row_offset, col_offset).
+                - data_bitwidth (int): Bitwidth of the evicted data.
+            If no victim is found, returns None.
         """
         strategies = {
-            'random': lambda: self._select_victim_by_random(),
-            'lru': lambda: self._select_victim_by_metric('last_access_time', True),
-            'lfu': lambda: self._select_victim_by_metric('access_count', True),
-            'mru': lambda: self._select_victim_by_metric('last_access_time', False),
-            'fifo': lambda: self._select_victim_by_metric('insertion_time', True)
+            'random': lambda: self._select_victim_by_random(tensors_needed_info, deterministic_key),
+            'lru': lambda: self._select_victim_by_metric('last_access_time', True, tensors_needed_info, deterministic_key),
+            'lfu': lambda: self._select_victim_by_metric('access_count', True, tensors_needed_info, deterministic_key),
+            'mru': lambda: self._select_victim_by_metric('last_access_time', False, tensors_needed_info, deterministic_key),
+            'fifo': lambda: self._select_victim_by_metric('insertion_time', True, tensors_needed_info, deterministic_key)
         }
         if self.replacement_strategy not in strategies:
             raise ValueError(f"Unknown replacement strategy: {self.replacement_strategy}")
 
-        victim_search_result = strategies[self.replacement_strategy]()
-        if victim_search_result is None:
+        victim_info = strategies[self.replacement_strategy]()
+        if victim_info is None:
             return None
         else:
-            victim_data_id, victim_metadata = victim_search_result
-            return self._handle_victim(victim_data_id, victim_metadata, free_mem_words, tensors_needed_info, verbose)
-        
-    def _select_victim_by_random(self):
+            return self._handle_victim(victim_info, free_mem_words, tensors_needed_info, verbose)
+    
+    def _get_data_for_victim_selection(self, tensors_needed_info):
+        eligible_for_removal = {d: c for d, c in self.contents.items() if c['data_amount'] > 0 and d not in self.free_locks}
+        # First select the candidates that are not in the tensors_needed_info for this memory
+        candidates = {d: c for d, c in eligible_for_removal.items() if not tensors_needed_info.is_in_memory(d, self.name)}
+        # Then check for the remaining data if any of the data present in memory is not needed -> can be a candidate for removal
+        data_to_check = {d: c for d, c in eligible_for_removal.items() if d not in candidates}
+        for data_id, metadata in data_to_check.items():
+            tiles = tensors_needed_info.get()[data_id]["tiles"][self.name]
+            parse_tile_key = lambda k: tuple(map(lambda s: tuple(map(int, s.split('x'))), k.split('_')))
+            total_amount = 0
+            
+            for tile_key in tiles.keys():
+                tile_shape, offset = parse_tile_key(tile_key)
+                res, info = self._check_tile_presence(data_id, tile_shape, offset)
+                
+                if res:
+                    present = tile_shape[0] * tile_shape[1]
+                else:
+                    present = tile_shape[0] * tile_shape[1] - info[0][0] * info[0][1]
+                total_amount += present
+                
+            total_in_memory = metadata['data_amount']
+            if total_in_memory > total_amount:
+                candidates[data_id] = metadata
+        return candidates if candidates else None
+                
+                
+     
+
+    def _select_victim_by_random(self, tensors_needed_info, deterministic_key):
         """Randomly select a victim data for removal."""
-        eligible_for_removal = {d: c for d, c in self.contents.items() if c['word_amount'] > 0 and d not in self.free_locks and d not in self.fetch_locks}
-        local_random = random.Random()
-        return local_random.choice(list(eligible_for_removal.items())) if eligible_for_removal else None
-    
-    def _select_victim_by_metric(self, metric, minimize):
+        candidates_for_removal = self._get_data_for_victim_selection(tensors_needed_info)
+        local_random = random.Random(deterministic_key) if deterministic_key is not None else random.Random()
+        return local_random.choice(list(candidates_for_removal.items())) if candidates_for_removal else None
+
+    def _select_victim_by_metric(self, metric, minimize, tensors_needed_info, deterministic_key):
         """Select a victim based on a specific metric."""
-        victim_choices = self._get_victim_data(metric, minimize)
-        return random.choice(victim_choices) if victim_choices else None
-    
-    def _get_victim_data(self, metric, minimize=True):
+        local_random = random.Random(deterministic_key) if deterministic_key is not None else random.Random()
+        victim_choices = self._get_victim_data(tensors_needed_info, metric, minimize)
+        return local_random.choice(victim_choices) if victim_choices else None
+
+    def _get_victim_data(self, tensors_needed_info, metric, minimize=True):
         """Get the data IDs with the least or most desirable value based on the given metric.
 
         Args:
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.
             metric (str): The metric to be used for selecting the victim data. Options include:
                         'last_access_time', 'insertion_time', 'access_count'.
             minimize (bool): Whether to minimize (True) or maximize (False) the metric.
@@ -917,8 +1006,8 @@ class GenericMemory(ABC):
         Returns:
             list: List of data items that are candidates for removal.
         """
-        eligible_for_removal = {d: c for d, c in self.contents.items() if c['word_amount'] > 0 and d not in self.free_locks and d not in self.fetch_locks}
-        
+        eligible_for_removal = self._get_data_for_victim_selection(tensors_needed_info)
+
         if not eligible_for_removal:
             return None
 
@@ -936,22 +1025,30 @@ class GenericMemory(ABC):
         victims = [item for item in eligible_for_removal.items() if metric_key_func(item[1]) == target_value]
         return victims
 
-    def _handle_victim(self, victim_data_id, victim_metadata, free_mem_words, tensors_needed_info, verbose):
+    def _handle_victim(self, victim_info, free_mem_words, tensors_needed_info, verbose):
         """
         This methods deduces the outcome of the replacement strategy and decides whether to proceed with freeing the memory or write-back the data.
 
         Args:
-            victim_data_id (str): The ID of the victim data.
-            victim_metadata (dict): Metadata of the victim data.
+            victim_info (tuple): Identification of a selected victim tensor id and its info.
             free_mem_words (int): The number of memory words needed to free in total.
-            tensors_needed_info TODO
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.           
             verbose (bool): Whether to print verbose logs.
 
         Returns:
-            # TODO CHANGE!!!
-            tuple: (replacement_outcome (str), victim_data_id (str), victim_data_elems (int), victim_offset (tuple), data_bitwidth (int))
+            tuple: A tuple containing:
+                - replacement_outcome (str): 'write_back' or 'free', indicating the action taken.
+                - victim_data_id (str): Identifier of the victim data.
+                - victim_data_category (str): Identifier for 'static' or 'dynamic' victim data tensor.
+                - victim_data_shape (tuple): Shape of the presence matrix of the victim data.
+                - data_layout_info (str): Type of data layout ('contiguous' or 'tile').
+                - data_layout (tuple or int): Layout of the victim data (tile shape or number of contiguous elements).
+                - data_offset (tuple): Offset within the data, as (row_offset, col_offset).
+                - data_bitwidth (int): Bitwidth of the victim data.
+                - free_words (int): Number of memory words freed.
         """
-        data_layout_info, data_layout, data_offset = self._determine_victim_shape_and_offset(victim_data_id, free_mem_words)
+        victim_data_id, victim_metadata = victim_info
+        data_layout_info, data_layout, data_offset = self._determine_victim_shape_and_offset(victim_data_id, free_mem_words, tensors_needed_info)
 
         elements_to_free = 0
         if data_layout_info == "contiguous":
@@ -959,26 +1056,30 @@ class GenericMemory(ABC):
         else:
             elements_to_free = data_layout[0] * data_layout[1]
         elements_per_word = self.word_size // victim_metadata['data_bitwidth']
-        free_words = elements_to_free // elements_per_word
+        free_words = math.ceil(elements_to_free / elements_per_word)
 
         if verbose:
             print(f"{self.replacement_strategy.upper()} replacement strategy in {self.name}: freeing {free_words} words from data {victim_data_id} with {data_layout_info} layout, shape {data_layout} and starting offset {data_offset}. Remaining '{free_mem_words-free_words}' words to be freed.")
 
         assert self.upper_level_memory, f"Upper level memory is not assigned for the current memory {self.name}. Cannot write-back data during replacement strategy."
         # Check if the data_id is still needed (as input for some operation waiting to be computed)
-        victim_data_required = True if victim_data_id in tensors_needed_info else False
+        victim_data_required = True if tensors_needed_info.has_tensor(victim_data_id) else False
 
         # Data are still needed for future computation and they are not currently present in the upper memory, write-back
         if victim_data_required and victim_data_id not in self.upper_level_memory.contents:
-            return 'write_back', victim_data_id, victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
+            return 'write_back', victim_data_id, victim_metadata['data_category'], victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
         # Upper level has the data but not the specific data layout and we still need the data for computation, write-back
         elif victim_data_required and (data_layout_info == "contiguous" and not self.upper_level_memory._check_data_presence(victim_data_id, data_layout, data_offset)[0]):
-            return 'write_back', victim_data_id, victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
+            return 'write_back', victim_data_id, victim_metadata['data_category'], victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
         elif victim_data_required and (data_layout_info == "tile" and not self.upper_level_memory._check_tile_presence(victim_data_id, data_layout, data_offset)[0]):
-            return 'write_back', victim_data_id, victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
+            return 'write_back', victim_data_id, victim_metadata['data_category'], victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
         # Upper level has the data segment OR the data are no longer required (thus no need for write-back), proceed with free
         else:
-            return 'free', victim_data_id, victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
+            return 'free', victim_data_id, victim_metadata['data_category'], victim_metadata['presence_matrix'].shape, data_layout_info, data_layout, data_offset, victim_metadata['data_bitwidth'], free_words
+
+
+
+
 
     def free(self, data_id, layout_info, data_layout, mem_words, data_offset, tensors_needed_info):
         """
@@ -987,9 +1088,10 @@ class GenericMemory(ABC):
         Args:
             data_id (str): Identifier for the data.
             layout_info (str): Type of data layout in memory to be freed. 'contiguous' or 'tile'
-            # TODO layout int or tuple...
-            # TODO  mem words
+            data_layout (tuple or int): Shape of the tile as (rows, cols) or number of contiguous elements.
+            mem_words (int): Number of data words to be freed from memory.
             data_offset (tuple): Offset within the data, as (row_offset, col_offset).
+            tensors_needed_info (TensorsNeededTracker): Contains info about which data tensors (and their respective per-memory tiles) are still needed to be stored (written back) for future computation. Otherwise the data are just evicted.
         """
         if data_id in self.contents:
             data_metadata = self.contents[data_id]
@@ -999,7 +1101,7 @@ class GenericMemory(ABC):
                 self.current_usage -= mem_words
                 self.fragmented_bits -= data_metadata['fragmented_bits']
 
-                if data_id not in tensors_needed_info:  # Presence matrix for this data tensor not needed anymore since it will never be required
+                if not tensors_needed_info.has_tensor(data_id):  # Presence matrix for this data tensor not needed anymore since it will never be required
                     data_metadata['presence_matrix'] = None     
                 else:  # Otherwise clear the whole presence matrix of any elements
                     self._clear_presence_matrix(data_metadata)
@@ -1057,6 +1159,7 @@ class GenericMemory(ABC):
             'width': self.width,
             'depth': self.depth,
             'size': self.size,
+            'words_capacity': self.words_capacity,
             'word_size': self.word_size,
             'ports': self.ports,
             'bus_bitwidth': self.bus_bitwidth,
@@ -1088,6 +1191,30 @@ class GenericMemory(ABC):
         }
         return stats
 
+    def reset_stats(self):
+        self.area = 0
+        self.energy = 0
+
+        self.current_usage = 0
+        self.contents = {}
+        self.fetch_locks = {}
+        self.free_locks = {}
+
+        self.available_ports = list(range(self.ports))
+        self.pending_actions = []
+        self.last_reads = {}
+
+        self._cycles_per_ports = [[0, 0] for _ in range(self.ports)]
+
+        self.data_read_count = 0
+        self.word_read_count = 0
+        self.mem_read_count = 0
+        self.data_write_count = 0
+        self.mem_write_count = 0
+        self.word_write_count = 0
+        self.cache_miss_count = 0
+        self.fragmented_bits = 0
+
     # Accelergy export methods
     def generate_action_counts(self):
         return {
@@ -1095,11 +1222,11 @@ class GenericMemory(ABC):
             'action_counts': [
                 {
                     'name': 'read',
-                    'counts': self.word_read_count if self.mem_read_count == 0 else self.mem_read_count
+                    'counts': self.mem_read_count
                 },
                 {
                     'name': 'write',
-                    'counts': self.word_write_count if self.mem_write_count == 0 else self.mem_write_count
+                    'counts': self.mem_write_count
                 }
             ]
         }

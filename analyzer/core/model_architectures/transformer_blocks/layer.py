@@ -17,12 +17,13 @@ class TransformerLayer(ABC):
         layer_dim (int): The internal size or depth of the layer.
         add_bias (bool): Whether to account for bias parameters.
     """
-    def __init__(self, name: str, sequence_length: int, embedding_dim: int, layer_dim: int, batch_size: int, add_bias: bool):
+    def __init__(self, name: str, sequence_length: int, embedding_dim: int, layer_dim: int, batch_size: int, add_bias: bool, parent: object = None, **kwargs):
         assert embedding_dim > 0
         assert layer_dim > 0
         assert batch_size > 0
         self.name = name
         self.type = self.__class__.__name__
+        self.parent = parent
         self.layers = []
         self.sequence_length = sequence_length
         self.embedding_dim = embedding_dim
@@ -42,7 +43,7 @@ class TransformerLayer(ABC):
                 f"Layer Dim: {self.layer_dim} "
                 f"Batch Size: {self.batch_size} "
                 f"Sub-layers: {len(self.layers)} "
-                f"Static Parameters: {self.num_static_parameters} "
+                f"Parameters: {self.num_static_parameters} "
                 f"MACs: {self.num_macs} "
                 f"Use bias: {self.add_bias}>")
 

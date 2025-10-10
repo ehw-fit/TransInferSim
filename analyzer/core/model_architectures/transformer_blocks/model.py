@@ -19,7 +19,7 @@ class TransformerModel(ABC):
         batch_size (int): The batch size for the model.
         add_bias (bool): Whether to account for bias parameters.
     """
-    def __init__(self, name: str, sequence_length: int, embedding_dim: int, batch_size: int, add_bias: bool):
+    def __init__(self, name: str, sequence_length: int, embedding_dim: int, batch_size: int, add_bias: bool, **kwargs):
         assert sequence_length > 0
         assert embedding_dim > 0
         assert batch_size > 0
@@ -43,7 +43,7 @@ class TransformerModel(ABC):
                 f"Embedding Dim: {self.embedding_dim} "
                 f"Batch Size: {self.batch_size} "
                 f"Layers: {len(self.layers)} "
-                f"Static Parameters: {self.num_static_parameters} "
+                f"Parameters: {self.num_static_parameters} "
                 f"MACs: {self.num_macs} "
                 f"Use bias: {self.add_bias}>")
     
@@ -108,7 +108,7 @@ class TransformerModel(ABC):
 
     def total_parameters(self):
         """Calculates the total number of parameters in the transformer model."""
-        return self.num_parameters
+        return self.num_static_parameters
 
     def total_computations(self):
         """Calculates the total number of computations for the transformer model."""

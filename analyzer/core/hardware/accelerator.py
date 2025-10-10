@@ -43,6 +43,9 @@ class GenericAccelerator():
         self.comp_names_map = {self.dram.name: self.dram}  # Map of component names to their respective object (Used for mapping the component to Accelergy stats)
         self.dram.parent_component = self
         self.global_cycles = 0  # Global cycle count for discrete simulation analysis
+        self._simulation_time = 0
+        self._accelergy_time = 0
+        self._runtime = 0
         self._analysis_done = False
         
         # Accelergy attributes
@@ -104,6 +107,8 @@ class GenericAccelerator():
         block.parent_component = self
         self.comp_names_map[block.name] = block
         self.matmul_blocks.append(block)
+        self.add_memory_block(block.row_buffer)
+        self.add_memory_block(block.col_buffer)
     
     def add_memory_block(self, block: GenericMemory):
         """Adds a memory block to the accelerator.
@@ -180,9 +185,23 @@ class GenericAccelerator():
             'max_utilization': self.calculate_max_utilization(),
             'memory_stats': [mem.get_stats(log_mem_contents) for mem in self.memory_blocks],
             'compute_stats': [comp.get_stats() for comp in self.matmul_blocks],
-            'dram_stats':  self.dram.get_stats(log_mem_contents)
+            'dram_stats':  self.dram.get_stats(log_mem_contents),
+            'simulation_time': round(self._simulation_time, 2),
+            'accelergy_time': round(self._accelergy_time, 2),
+            'runtime': round(self._runtime, 2),
         }
         return stats
+
+    def reset_stats(self):
+        self.global_cycles = 0
+        self.energy = 0
+        self.area = 0
+        self._simulation_time = 0
+        self._accelergy_time = 0
+        self._runtime = 0
+        self.analysis_done = False
+        for b in self.memory_blocks + self.matmul_blocks + [self.dram]:
+            b.reset_stats()
 
     @staticmethod
     def format_flops(value, precision):
@@ -244,8 +263,8 @@ class GenericAccelerator():
             output.append(f"    Bus Bitwidth: {mem_stat['bus_bitwidth']}")
             output.append(f"    Bandwidth per port: {mem_stat['bandwidth_per_port'] / 1e9:.{precision}e} Gbps")
             output.append(f"    Total Bandwidth: {mem_stat['total_bandwidth'] / 1e9:.{precision}e} Gbps")
-            output.append(f"    Current Usage: {mem_stat['current_usage']}")
-            output.append(f"    Utilized Capacity: {(mem_stat['current_usage'] / mem_stat['size']):.2%}")
+            output.append(f"    Current Usage: {mem_stat['current_usage']} words")
+            output.append(f"    Utilized Capacity: {(mem_stat['current_usage'] / mem_stat['words_capacity']):.2%}")
             output.append(f"    Action Latency: {mem_stat['action_latency']:.{precision}e}")
             output.append(f"    Cycles per Access: {mem_stat['cycles_per_access']}")
             output.append(f"    Data Read Count: {mem_stat['data_read_count']}")
@@ -341,8 +360,8 @@ class GenericAccelerator():
             output.append(f"    Operational Cycles: {comp_stat['cycles']:.{precision}e}")
             output.append(f"    Latency: {(comp_stat['latency']):.{precision}} s")
             output.append(f"    Energy: {comp_stat['energy']:.{precision}} J")
-            output.append(f"    EDP (cycles): {stats['edp_cycles']:.{precision}} J.cycles")
-            output.append(f"    EDP (latency): {stats['edp_latency']:.{precision}} J.s")            
+            output.append(f"    EDP (cycles): {comp_stat['edp_cycles']:.{precision}} J.cycles")
+            output.append(f"    EDP (latency): {comp_stat['edp_latency']:.{precision}} J.s")            
             output.append(f"    Area: {float(comp_stat['area']):.{precision}} um^2")
             output.append(f"    PEs Total Cycles: {comp_stat['pes_total_cycles']:.{precision}e}")
             output.append(f"    PEs Computational Cycles: {comp_stat['pes_computational_cycles']:.{precision}e}")
@@ -399,7 +418,7 @@ class GenericAccelerator():
         yaml_content = re.sub(r'(\s|^)(\'|")([a-zA-Z0-9_]+)(\'|"):', r'\1\3:', yaml_content)
 
         if out_fname:
-            with open(f"{out_fname}.yaml", 'w') as file:
+            with open(f"{out_fname}", 'w') as file:
                 file.write(yaml_content)
         else:
             return yaml_content
@@ -434,7 +453,7 @@ class GenericAccelerator():
         yaml_content = yaml.dump(action_counts, default_flow_style=False, sort_keys=False)
 
         if out_fname:
-            with open(f"{out_fname}.yaml", 'w') as file:
+            with open(f"{out_fname}", 'w') as file:
                 file.write(yaml_content)
         else:
             return yaml_content

@@ -1,12 +1,13 @@
 from analyzer.hardware_components.memories.dedicated import DedicatedMemory
 from analyzer.hardware_components.memories.shared import SharedMemory
+from analyzer.hardware_components.memories.buffer import BufferStack
 import math
 
 class MatmulArray():
     """Generic class for a matrix multiplication spatial array in a hardware accelerator.
 
-    TODO revise
     Each processing element is thought to be composed of a MAC unit and small local register.
+    # TODO make PE its own object type... for better granuality
 
     Args:
         name (str): The name of the matmul array.
@@ -14,15 +15,17 @@ class MatmulArray():
         columns (int): The number of columns in the matmul array.
         data_bitwidth (int): The bitwidth of the data processed by the array.
         cycle_time (float): The time per cycle in seconds (e.g., 7e-9 for 7ns).
+        buffer_length (int): Depth (in elements) of each per-row/per-column feeder buffer.
         cycles_per_mac (int): The number of cycles required to complete a single MAC operation. (Defaults to 1)
         num_pipeline_stages (int): The number of pipeline stages in the MAC unit. (Defaults to 1)
     """
 
-    def __init__(self, rows: int, columns: int, data_bitwidth: int, cycle_time: float, cycles_per_mac: int = 1, num_pipeline_stages: int = 1, name: str = "spatial_array", parent_component=None):
+    def __init__(self, rows: int, columns: int, data_bitwidth: int, cycle_time: float, buffer_length: int, cycles_per_mac: int = 1, num_pipeline_stages: int = 1, name: str = "spatial_array", parent_component=None):
         assert rows > 0, "Number of rows must be positive."
         assert columns > 0, "Number of columns must be positive."
         assert data_bitwidth > 0, "Data bitwidth must be positive."
         assert cycle_time > 0, "Time required for one cycle must be positive."
+        assert buffer_length > 0, "Buffer length must be positive."
         assert cycles_per_mac > 0, "Number of cycles per MAC must be positive."
         assert num_pipeline_stages > 0, "Number of pipeline stages must be positive."
         assert len(name) > 0, "Name must be a non-empty string."
@@ -36,6 +39,11 @@ class MatmulArray():
         self.cycle_time = cycle_time  # Accelerator cycle time
         self.parent_component = parent_component
         self._auto_interconnect_set = False  # Used for auto interconnection feature between other HW components to avoid repated interconnetct
+        
+        # Instantiating data feeding buffers
+        self.buffer_length = buffer_length
+        self.row_buffer = BufferStack(name=f"{name}_rowbuf", buffer_length=buffer_length, is_it_row_buffer=True, num_buffers=rows, element_size=data_bitwidth)
+        self.col_buffer = BufferStack(name=f"{name}_colbuf", buffer_length=buffer_length, is_it_row_buffer=False, num_buffers=columns, element_size=data_bitwidth)
 
         # Functional characteristics
         self.data_bitwidth = data_bitwidth
@@ -143,9 +151,11 @@ class MatmulArray():
     # Control methods during simulation analysis
     def assign_static_params_memory(self, memory):
         self.static_param_memory = memory
+        self.col_buffer.set_upper_level_memory(memory)
         
     def assign_dynamic_params_memory(self, memory):
         self.dynamic_param_memory = memory
+        self.row_buffer.set_upper_level_memory(memory)
 
     # TODO REWORK MEMORY ASSIGNMENT LOGIC?
     def find_and_assign_memories(self):
@@ -157,7 +167,7 @@ class MatmulArray():
 
         # First, check and reset the associated_matmuls and upper memories if they were assigned prior to the simulation.. but auto interconnect should be used (overwrite the setting)
         for m in accelerator.memory_blocks:
-            if m.parent_component.auto_interconnect and not m._auto_interconnect_set:
+            if (not isinstance(m, BufferStack)) and (m.parent_component.auto_interconnect and not m._auto_interconnect_set):
                 m.associated_matmuls = []
                 m.upper_level_memory = None
 
@@ -176,7 +186,7 @@ class MatmulArray():
                 # Use the first shared memory for dynamic parameters
                 shared_memory = shared_memories.pop(-1)
                 shared_memory._auto_interconnect_set = True
-                self.assign_dynamic_params_memory(shared_memory)
+                self.assign_dynamic_params_memory(shared_memory)                
                 
                 # Set the shared memory as the upper level for the dedicated memory (and vice versa, the dedicated memory as the shared memory's lower level)
                 dedicated_memory.set_upper_level_memory(shared_memory)
@@ -208,7 +218,6 @@ class MatmulArray():
             # If only shared memories are available, use the first one for both static and dynamic parameters
             shared_memory = shared_memories.pop(-1)
             shared_memory._auto_interconnect_set = True
-            shared_memory.add_associated_matmul(self)
             self.assign_static_params_memory(shared_memory)
             self.assign_dynamic_params_memory(shared_memory)
 
@@ -233,7 +242,6 @@ class MatmulArray():
             # If no dedicated or shared memories, assign everything to DRAM
             self.assign_static_params_memory(dram)
             self.assign_dynamic_params_memory(dram)
-            dram.add_associated_matmul(self)
             dram._auto_interconnect_set = True
 
     def compute(self, dim_m, dim_k, dim_n):
@@ -314,6 +322,21 @@ class MatmulArray():
         }
         return stats
 
+    def reset_stats(self):
+        self.area = 0
+        self.energy = 0
+        self.compute_done()
+
+        self.plan = []
+
+        self.global_cycles = 0
+        self.pes_computational_cycles = 0
+        self.pes_idle_cycles = 0
+        self.total_flop_computes = 0
+
+        self.accumulator_reads = 0
+        self.accumulator_writes = 0
+        
     # Accelergy export methods
     def get_accelergy_description(self):
         return {
@@ -333,7 +356,7 @@ class MatmulArray():
                     },
                 },
                 {
-                    "name": "buffer",
+                    "name": "register",
                     "class": "smartbuffer_RF",
                     "attributes": {
                         "width": 2 * self.data_bitwidth,
@@ -361,7 +384,7 @@ class MatmulArray():
                     ]
                 },
                 {
-                    'name': 'buffer',
+                    'name': 'register',
                     'action_counts': [
                         {
                             'name': 'read',

@@ -13,35 +13,35 @@ if __name__ == "__main__":
     """ MODEL/LAYER Specification """
     # NOTE: Currently no batch and bias supported during analysis
     model = ViTTiny()  #  ViTTiny chosen for faster execution here, change with any model/layer
-    # print(model)
+    print(model)
 
     """ HW Specification """
     # Below is a drawn view of the HW setup described below:
     """                                 
-    ┌──────────────────────────┐            
-    │┌──────┐ ┌──────┐ ┌──────┐│            
-    ││Matmul│ │Matmul│ │Matmul││            
-    │└─▲──▲─┘ └─▲──▲─┘ └─▲──▲─┘│            
-    │  │  │     │  │     │  │  │            
-    │┌────▼─┐ ┌────▼─┐ ┌─▼────┐│            
-    ││DedMem│ │DedMem│ │DedMem││            
-    │└────▲─┘ └────▲─┘ └─▲────┘│            
-    │  │  │     │  │     │  │  │            
-    │  │  │   ┌─▼──▼─┐   │  │  │            
-    │  │  └───►Shared◄───┘  │  │
-    │  └──────►Memory◄──────┘  │            
-    │         └─▲▲▲──┘         │            
-    └───────────┼┼┼────────────┘            
-              ┌─▼▼▼──┐                      
-              │ DRAM │                      
-              └──────┘                      
+    ┌─────────────────────────────┐            
+    │┌───────┐ ┌───────┐ ┌───────┐│            
+    ││Matmul0│ │Matmul1│ │Matmul2││            
+    │└──▲──▲─┘ └──▲──▲─┘ └──▲──▲─┘│            
+    │   │  │      │  │      │  │  │            
+    │┌─────▼─┐ ┌─────▼─┐ ┌──▼────┐│            
+    ││DedMem0│ │DedMem1│ │DedMem2││            
+    │└─────▲─┘ └─────▲─┘ └──▲────┘│            
+    │   │  │      │  │      │  │  │            
+    │   │  │    ┌─▼──▼─┐    │  │  │            
+    │   │  └────►Shared◄────┘  │  │
+    │   └───────►Memory◄───────┘  │            
+    │           └─▲▲▲──┘          │            
+    └─────────────┼┼┼─────────────┘            
+                ┌─▼▼▼──┐                      
+                │ DRAM │                      
+                └──────┘                      
     """
     # Create DRAM, accelerator, and all its subcomponents instances (ALL NAMES MUST BE UNIQUE!)
 
     # NOTE: Offchip DRAM width and depth is not important for the final area. However, its size determines the energy-per-access into DRAM, since the size affects the energy connected with address generation.
     # Minimum width and depth of a memory is 64 to avoid Accelergy errors (CACTI wants at least 64x64 size)
     # the cycle time should match the accelerator cycle time (1/cycle_time gives frequency)
-    dram = OffChipMemory(name="offchip_mem_1", width=1024, depth=4096000, action_latency=70e-9, cycle_time=5e-9, bus_bitwidth=32, ports=3)
+    dram = OffChipMemory(name="offchip_mem_1", width=1024, depth=4096000, action_latency=70e-9, cycle_time=5e-9, bus_clock_hz=200e6, bus_bitwidth=32, ports=3, prefetch_factor=2, burst_length=4)
     # Tech node is set to 45nm for Accelergy (if different is used, it may cause Accelergy errors, resulting in no energy/area stats)
     
     # NOTE: auto interconnect is used to automatically connect matmul blocks with memories based on the lists of components (if set to true, it overrides USER DEFINED INTERCONNECTIONS!)
@@ -50,8 +50,8 @@ if __name__ == "__main__":
     # Define computational blocks (MatmulArray); NOTE: Their sizes can be different
     comp_blocks = []
     for i in range(3):
-        comp_blocks.append(MatmulArray(rows=64, columns=64, data_bitwidth=8, cycle_time=accelerator.cycle_time, name=f"comp_block{i}", num_pipeline_stages=1, cycles_per_mac=1))
-    
+        comp_blocks.append(MatmulArray(rows=64, columns=64, data_bitwidth=8, buffer_length=16, cycle_time=accelerator.cycle_time, name=f"comp_block{i}", num_pipeline_stages=1, cycles_per_mac=1))
+
     # 16MB shared memory (used for connection to DRAM and to other memories/matmuls blocks and storing all data types (static and dynamic))
     # Replacement strategies supported: random, lru, lfu, mru, fifo
     # NOTE: LRU is set here because it is efficient and assures deterministic behavior for this scenario
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     # If dedicated memories are present, always one is attempted to be assigned and connected with one matmul block (one ded. mem per matmul block) and are also connected to the upper shared mem (if none exists, then straight to DRAM) and to matmul.
 
     # NOTE: auto_interconnect WAS NOT TESTED FOR TOO COMPLEX HIERARCHIES, users are encouraged to set the connections manually for such cases
-    # The following setting exactly matches the auto_interconnect setting, which the engine would do automatically
+    # The following setting exactly matches the auto_interconnect setting, which the engine does automatically
     
     # Shared mem 1 gets data from dram
     mem_block_1.set_upper_level_memory(dram)
@@ -88,10 +88,6 @@ if __name__ == "__main__":
     dedicated_mems[0].set_upper_level_memory(mem_block_1)
     dedicated_mems[1].set_upper_level_memory(mem_block_1)
     dedicated_mems[2].set_upper_level_memory(mem_block_1)
-
-    dedicated_mems[0].add_associated_matmul(comp_blocks[0])
-    dedicated_mems[1].add_associated_matmul(comp_blocks[1])
-    dedicated_mems[2].add_associated_matmul(comp_blocks[2])
 
     # Connect memories to comp blocks (for retrieving input static params and retrieving/storing the input/output dynamic params)
     comp_blocks[0].assign_static_params_memory(dedicated_mems[0])
@@ -105,7 +101,7 @@ if __name__ == "__main__":
 
     """ ANALYZER """
     analyzer = Analyzer(model, accelerator, data_bitwidth=8)  # data bitwidth is currently considered uniform for all data tensors
-    # analyzer.visualize_graph()
+    analyzer.visualize_graph("test_graph1")
 
     """ SIMULATION """
     # None scheduling key == uniform distribution of compute operations across compute units
@@ -115,4 +111,9 @@ if __name__ == "__main__":
     """ METRICS RETRIEVAL """
     # NOTE: To see the contents of individual memories (per-tensor read/write log data) turn to True, but it may generate a lot of details
     stats = accelerator.get_statistics(log_mem_contents=False)
-    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out.txt")
+    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out_1.txt")
+
+    analyzer.reset()
+    analyzer.run_simulation_analysis(verbose=False, permutation_seed=42, scheduling_seed=None, engine_type="static")
+    stats = accelerator.get_statistics(log_mem_contents=False)
+    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out_2.txt")

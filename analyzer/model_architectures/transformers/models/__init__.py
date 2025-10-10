@@ -7,3 +7,5 @@ from .vit_base import ViTBase
 from .vit_large import ViTLarge
 
 from .deit_tiny import DeiTTiny
+
+from .deepseekv2 import DeepSeekV2

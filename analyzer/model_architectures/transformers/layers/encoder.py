@@ -1,14 +1,19 @@
 from analyzer.core.model_architectures.transformer_blocks.layer import TransformerLayer
 from .multi_head_self_attention import MultiHeadSelfAttention
+from .multi_head_latent_attention import MultiHeadLatentAttention
 from .feed_forward_network import FeedForwardNetwork
 import json
 
 class Encoder(TransformerLayer):
-    def __init__(self, name: str = "encoder", sequence_length: int = 256, embedding_dim: int = 768, layer_dim: int = 3072, num_heads: int = 12, batch_size: int = 1, add_bias: bool = False, **kwargs):
-        super().__init__(name, sequence_length, embedding_dim, layer_dim, batch_size, add_bias, **kwargs)
-        # Add multi-head self-attention and feed-forward network as components
-        self.add_layer(MultiHeadSelfAttention(f"{name}_mhsa", sequence_length, embedding_dim, num_heads, batch_size, add_bias, **kwargs))
-        self.add_layer(FeedForwardNetwork(f"{name}_ffn", sequence_length, embedding_dim, layer_dim, batch_size, add_bias, **kwargs))
+    def __init__(self, name: str = "encoder", sequence_length: int = 256, embedding_dim: int = 768, layer_dim: int = 3072, num_heads: int = 12, batch_size: int = 1, add_bias: bool = False, parent: object = None, attention_type = MultiHeadSelfAttention, **kwargs):
+        super().__init__(name, sequence_length, embedding_dim, layer_dim, batch_size, add_bias, parent, **kwargs)
+        assert attention_type in [MultiHeadSelfAttention, MultiHeadLatentAttention], "attention_type must be either MultiHeadSelfAttention or MultiHeadLatentAttention."
+        # TODO similarly add choice for FFN or MoE! now fixed MoE within encoder block
+        if attention_type == MultiHeadSelfAttention:
+            self.add_layer(MultiHeadSelfAttention(f"{name}_mhsa", sequence_length, embedding_dim, num_heads, batch_size, add_bias, self, **kwargs))
+        else:
+            self.add_layer(MultiHeadLatentAttention(f"{name}_mla", sequence_length=sequence_length, embedding_dim=embedding_dim, num_heads=num_heads, batch_size=batch_size, add_bias=add_bias, parent=self, **kwargs))
+        self.add_layer(FeedForwardNetwork(f"{name}_ffn", sequence_length, embedding_dim, layer_dim, batch_size, add_bias, self, **kwargs))
 
         """ STATS """
         self.num_static_parameters = sum(l.num_static_parameters for l in self.layers)

@@ -4,7 +4,10 @@
 *.csv
 *.pyc
 __pycache__/
+**/__pycache__/
 build/
 infersim.egg-info/
+analyzer_*.py
+analyze*.py
 experiment*.py
 test*.py

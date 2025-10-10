@@ -2,8 +2,8 @@ from analyzer.core.model_architectures.transformer_blocks.layer import Transform
 
 
 class FeedForwardNetwork(TransformerLayer):
-    def __init__(self, name: str = "ffn", sequence_length: int = 256, embedding_dim: int = 768, layer_dim: int = 3072, batch_size: int = 1, add_bias: bool = False, **kwargs):
-        super().__init__(name, sequence_length, embedding_dim, layer_dim, batch_size, add_bias, **kwargs)
+    def __init__(self, name: str = "ffn", sequence_length: int = 256, embedding_dim: int = 768, layer_dim: int = 3072, batch_size: int = 1, add_bias: bool = False, parent: object = None, **kwargs):
+        super().__init__(name, sequence_length, embedding_dim, layer_dim, batch_size, add_bias, parent, **kwargs)
 
         """ STATS """
         # Two linear transformations: embedding_dim -> layer_dim -> embedding_dim

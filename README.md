@@ -9,7 +9,7 @@ TransInferSim is a cycle-accurate simulator for analyzing the hardware performan
 - Includes various plugins for Accelergy's flexibility
 
 ### Reference
-If you find our work useful, please reffer [our paper](https://ieeexplore.ieee.org/document/11202474).
+If you find our work useful, please refer [our paper](https://ieeexplore.ieee.org/document/11202474).
 
     J. Klhufek, A. Marchisio, V. Mrazek, L. Sekanina and M. Shafique, "TransInferSim: Toward Fast and Accurate Evaluation of Embedded Hardware Accelerators for Transformer Networks," in IEEE Access, vol. 13, pp. 177215-177226, 2025, doi: 10.1109/ACCESS.2025.3621062.
 

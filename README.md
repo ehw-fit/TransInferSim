@@ -1,5 +1,7 @@
-# InferSim
-TransInferSim is a simulation framework for analyzing Transformer NN inference on hardware. This repository includes various plugins and tools for energy estimation using the Accelergy framework.
+# TransInferSim - fast analysis of Transformer Network inference
+TransInferSim is a cycle-accurate simulator for analyzing the hardware performance of Transformer NN inference on custom systolic-array accelerators. Combined with Accelergy, it reports latency, energy, area, and other efficiency metrics, enabling cache-policy analysis, memory-hierarchy optimization, hardware design-space exploration, and exportable execution plans for RTL validation and deployment. 
+
+![Overall view](overall.jpg)
 
 ## Features
 - Analyzes Transformer NN inference on hardware
@@ -7,7 +9,22 @@ TransInferSim is a simulation framework for analyzing Transformer NN inference o
 - Includes various plugins for Accelergy's flexibility
 
 ### Reference
-TODO
+If you find our work useful, please refer [our paper](https://ieeexplore.ieee.org/document/11202474).
+
+    J. Klhufek, A. Marchisio, V. Mrazek, L. Sekanina and M. Shafique, "TransInferSim: Toward Fast and Accurate Evaluation of Embedded Hardware Accelerators for Transformer Networks," in IEEE Access, vol. 13, pp. 177215-177226, 2025, doi: 10.1109/ACCESS.2025.3621062.
+
+```bibtex
+@ARTICLE{transinfersim,
+  author={Klhufek, Jan and Marchisio, Alberto and Mrazek, Vojtech and Sekanina, Lukas and Shafique, Muhammad},
+  journal={IEEE Access}, 
+  title={TransInferSim: Toward Fast and Accurate Evaluation of Embedded Hardware Accelerators for Transformer Networks}, 
+  year={2025},
+  volume={13},
+  number={},
+  pages={177215-177226},
+  keywords={Transformers;Accuracy;Hardware acceleration;Computational modeling;Schedules;Analytical models;Data models;Computer architecture;Memory management;Register transfer level;Transformers;hardware accelerators;modeling tools;memory subsystem;evaluation and optimizations},
+  doi={10.1109/ACCESS.2025.3621062}}
+```
 
 ## Installation
 To get started with TransInferSim, follow these steps:

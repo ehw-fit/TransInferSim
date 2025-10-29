@@ -30,8 +30,8 @@ git clone --recurse-submodules https://github.com/ehw-fit/TransInferSim
 cd TransInferSim
 python3 -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
-pip install wheel setuptools
+pip install --upgrade pip wheel setuptools
+./scripts/setup_submodules.sh
 pip install .
 ```
 

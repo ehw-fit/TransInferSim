@@ -111,9 +111,9 @@ if __name__ == "__main__":
     """ METRICS RETRIEVAL """
     # NOTE: To see the contents of individual memories (per-tensor read/write log data) turn to True, but it may generate a lot of details
     stats = accelerator.get_statistics(log_mem_contents=False)
-    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out_1.txt")
+    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out.txt")
 
-    analyzer.reset()
-    analyzer.run_simulation_analysis(verbose=False, permutation_seed=42, scheduling_seed=None, engine_type="static")
-    stats = accelerator.get_statistics(log_mem_contents=False)
-    GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out_2.txt")
+    #analyzer.reset()
+    #analyzer.run_simulation_analysis(verbose=False, permutation_seed=42, scheduling_seed=None, engine_type="static")
+    #stats = accelerator.get_statistics(log_mem_contents=False)
+    #GenericAccelerator.pretty_print_stats(stats, verbose=False, file_path="stats_out_2.txt")

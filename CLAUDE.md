@@ -758,5 +758,332 @@ pp. 177215-177226, 2025, doi: 10.1109/ACCESS.2025.3621062.
 
 ---
 
+---
+
+## STL Integration for Temporal Constraint Monitoring
+
+### Overview
+
+TransInferSim integrates **Signal Temporal Logic (STL)** for formal specification and monitoring of temporal constraints during hardware design-space exploration. STL provides quantitative robustness semantics that measure "how well" specifications are satisfied.
+
+**Key Benefits:**
+- **Formal specification** of design requirements (latency, energy, utilization, etc.)
+- **Automated constraint checking** post-simulation
+- **Quantitative robustness** values (not just pass/fail)
+- **Design space exploration** with STL-guided filtering and ranking
+- **Multi-objective optimization** support (Pareto frontiers)
+
+### STL Module Structure
+
+```
+analyzer/stl/
+├── core/                              # Core STL functionality
+│   ├── specification.py              # STL formula definitions
+│   └── robustness.py                 # Robustness computation
+├── monitors/                          # Monitoring implementations
+│   ├── base_monitor.py               # Abstract monitor class
+│   └── offline_monitor.py            # Post-simulation monitoring
+├── signals/                           # Signal extraction
+│   ├── signal_extractor.py           # Extract from statistics
+│   └── signal_builder.py             # Build custom signals
+├── constraints/                       # Pre-defined constraint libraries
+│   ├── performance_constraints.py    # Latency, throughput, utilization
+│   ├── power_constraints.py          # Energy, EDP
+│   ├── resource_constraints.py       # Area, cache hit rate, bandwidth
+│   └── composite_constraints.py      # Multi-objective specs
+├── dse/                               # Design Space Exploration
+│   ├── constraint_checker.py         # Automated DSE with STL
+│   ├── pareto_frontier.py            # Pareto-optimal selection
+│   └── robustness_ranker.py          # Ranking utilities
+└── utils/                             # Utilities
+    ├── visualization.py              # Plot signals, robustness
+    └── reporting.py                  # Generate reports
+```
+
+### Quick Start with STL
+
+**1. Basic STL Monitoring:**
+
+```python
+from analyzer.stl import (
+    OfflineSTLMonitor,
+    PerformanceConstraints,
+    PowerConstraints
+)
+
+# Define constraints
+constraints = [
+    PerformanceConstraints.max_latency(10e-3),  # Max 10ms latency
+    PerformanceConstraints.min_utilization(0.7), # Min 70% utilization
+    PowerConstraints.max_energy(100e-9)          # Max 100pJ energy
+]
+
+# Run simulation (standard workflow)
+analyzer.run_simulation_analysis()
+stats = accelerator.get_statistics()
+
+# NEW: Evaluate STL constraints
+monitor = OfflineSTLMonitor(constraints, accelerator)
+results = monitor.evaluate(stats)
+
+# Check results
+for result in results:
+    print(f"{result['name']}: robustness = {result['robustness']:.6f}")
+    print(f"  Satisfied: {result['satisfied']}")
+```
+
+**2. Design Space Exploration:**
+
+```python
+from analyzer.stl import ConstraintBasedDSE
+from analyzer.stl.dse import ParetoFrontier
+
+# Define requirements
+constraints = [
+    PerformanceConstraints.max_latency(8e-3),
+    PowerConstraints.max_energy(150e-9),
+    ResourceConstraints.max_area(80.0)
+]
+
+# Create DSE engine
+dse = ConstraintBasedDSE(model=ViTTiny(), constraints=constraints)
+
+# Generate hardware configurations
+configs = [
+    create_accelerator(size=64, mem=16*MB),
+    create_accelerator(size=128, mem=32*MB),
+    # ... more configs
+]
+
+# Explore and rank
+results = dse.explore_design_space(configs, verbose=True)
+
+# Get best config
+best = results[0]  # Sorted by robustness
+print(f"Best: {best['config_name']}, robustness={best['min_robustness']}")
+
+# Compute Pareto frontier
+pareto = ParetoFrontier.compute_pareto_frontier(
+    results, objectives=['latency', 'energy'], minimize=[True, True]
+)
+```
+
+### Available Constraint Templates
+
+**Performance Constraints:**
+- `PerformanceConstraints.max_latency(threshold)` - Latency always below threshold
+- `PerformanceConstraints.min_utilization(threshold)` - Utilization always above threshold
+- `PerformanceConstraints.min_throughput(threshold)` - Throughput requirement
+- `PerformanceConstraints.component_utilization(name, threshold)` - Per-component utilization
+- `PerformanceConstraints.balanced_utilization(min, max)` - Utilization within bounds
+
+**Power Constraints:**
+- `PowerConstraints.max_energy(threshold)` - Total energy below threshold
+- `PowerConstraints.max_edp_latency(threshold)` - Energy-delay product constraint
+- `PowerConstraints.energy_efficiency(min, max)` - Energy within range
+
+**Resource Constraints:**
+- `ResourceConstraints.max_area(threshold)` - Chip area constraint
+- `ResourceConstraints.min_cache_hit_rate(memory, threshold)` - Cache efficiency
+- `ResourceConstraints.max_cache_miss_rate(memory, threshold)` - Miss rate limit
+- `ResourceConstraints.min_memory_bandwidth(memory, threshold)` - Bandwidth requirement
+- `ResourceConstraints.dram_access_limit(max_accesses)` - Off-chip access limit
+
+**Composite Constraints:**
+- `CompositeConstraints.pareto_optimal(lat, eng, area)` - Multi-objective constraint
+- `CompositeConstraints.performance_power_trade_off(...)` - Balance perf and power
+- `CompositeConstraints.memory_hierarchy_efficiency(...)` - Memory optimization
+- `CompositeConstraints.custom_and(specs)` - Combine constraints with AND
+- `CompositeConstraints.custom_or(specs)` - Combine constraints with OR
+
+### STL Robustness Semantics
+
+**Robustness Value Interpretation:**
+- `ρ > 0` : Specification **satisfied** (positive = robust)
+- `ρ = 0` : Borderline case
+- `ρ < 0` : Specification **violated** (negative = degree of violation)
+
+**Magnitude indicates distance from threshold:**
+- Larger positive values = more robust satisfaction
+- More negative values = worse violation
+
+**Example:**
+```python
+# Constraint: latency < 10ms
+# If latency = 8ms  → robustness = +2ms (satisfied, 2ms margin)
+# If latency = 12ms → robustness = -2ms (violated by 2ms)
+```
+
+### Signal Extraction
+
+The `SignalExtractor` converts simulation statistics into time-series signals for STL monitoring.
+
+**Currently Available Signals:**
+- **Global:** `latency`, `energy`, `edp_latency`, `edp_cycles`, `area`, `avg_throughput`, `min_utilization`, `max_utilization`
+- **Per-component:** `{name}_utilization`, `{name}_throughput`, `{name}_idle_ratio`
+- **Per-memory:** `{name}_hit_rate`, `{name}_miss_rate`, `{name}_bandwidth`, `{name}_accesses`
+
+**Note:** Phase 1 implementation uses aggregate values as constant signals over simulation duration. Future enhancements will support per-cycle signal tracking.
+
+### Design Space Exploration Workflow
+
+```python
+# 1. Define model and constraints
+model = ViTTiny()
+constraints = [...]
+
+# 2. Create DSE engine
+dse = ConstraintBasedDSE(model, constraints)
+
+# 3. Generate configurations
+configs = generate_hardware_configs(...)
+
+# 4. Explore
+results = dse.explore_design_space(configs, verbose=True)
+
+# 5. Filter to satisfying configs
+satisfying = dse.filter_satisfying(results)
+
+# 6. Rank by robustness
+from analyzer.stl.dse import RobustnessRanker
+ranked = RobustnessRanker.rank_by_min_robustness(satisfying)
+
+# 7. Get Pareto frontier
+pareto = ParetoFrontier.compute_pareto_frontier(
+    results, ['latency', 'energy'], [True, True]
+)
+
+# 8. Select best tradeoff
+best = RobustnessRanker.select_best_tradeoff(
+    results, robustness_weight=0.6, performance_metric='latency'
+)
+
+# 9. Export results
+dse.export_results(results, "dse_results.csv")
+```
+
+### Example Scripts
+
+**Basic STL Monitoring:**
+```bash
+python example_with_stl.py
+```
+Demonstrates:
+- Defining STL constraints
+- Running simulation
+- Evaluating constraints
+- Generating reports
+
+**Design Space Exploration:**
+```bash
+python example_dse.py
+```
+Demonstrates:
+- Creating hardware configurations
+- STL-guided DSE
+- Pareto frontier analysis
+- Robustness-based ranking
+- Exporting results
+
+### Integration with Existing Code
+
+**STL is 100% backward compatible:**
+- Existing code works unchanged (no modifications needed)
+- STL monitoring is opt-in (add when needed)
+- No performance overhead if not used
+
+**Adding STL to existing workflow:**
+```python
+# Existing workflow (unchanged)
+analyzer = Analyzer(model, accelerator, data_bitwidth=8)
+analyzer.run_simulation_analysis()
+stats = accelerator.get_statistics()
+
+# Add STL monitoring (new, optional)
+from analyzer.stl import OfflineSTLMonitor, PerformanceConstraints
+monitor = OfflineSTLMonitor([PerformanceConstraints.max_latency(10e-3)], accelerator)
+results = monitor.evaluate(stats)
+```
+
+### Dependencies
+
+**Required:**
+- `rtamt>=0.3.0` - STL monitoring library (added to requirements.txt)
+
+**Optional (for visualization):**
+- `matplotlib` - For plotting signals and robustness values
+
+**Installation:**
+```bash
+pip install rtamt
+pip install matplotlib  # Optional
+```
+
+### Common Use Cases
+
+**1. Validate Design Against Requirements:**
+```python
+# Check if design meets all specifications
+if monitor.all_satisfied():
+    print("Design meets all requirements!")
+else:
+    violations = monitor.get_violations()
+    print(f"Violations: {[v['name'] for v in violations]}")
+```
+
+**2. Compare Two Configurations:**
+```python
+dse = ConstraintBasedDSE(model, constraints)
+# ... run DSE ...
+comparison = dse.compare_configs(['config_a', 'config_b'])
+print_comparison_table(comparison)
+```
+
+**3. Find Pareto-Optimal Designs:**
+```python
+pareto_configs = ParetoFrontier.compute_pareto_frontier(
+    results, objectives=['latency', 'energy', 'area'],
+    minimize=[True, True, True]
+)
+```
+
+**4. Sensitivity Analysis:**
+```python
+# How close is design to violating constraints?
+min_robustness = monitor.get_min_robustness()
+print(f"Weakest constraint has robustness: {min_robustness:.6f}")
+```
+
+### Limitations and Future Work
+
+**Current Limitations:**
+- Signals extracted as constant values over simulation duration
+- No per-cycle signal tracking (Phase 1)
+- Online monitoring not yet implemented
+- rtamt required for full functionality
+
+**Future Enhancements:**
+- Per-cycle signal tracking via event scheduler instrumentation
+- Online monitoring for runtime constraint checking
+- Integration with genetic algorithm optimization (GeneticAlgorithmSimulationEngine)
+- Extended signal library (power per cycle, temperature, etc.)
+- Support for probabilistic STL (PSTL)
+
+### Research Applications
+
+**STL-guided DSE enables:**
+1. **Automated design validation** - Formal verification of requirements
+2. **Multi-objective optimization** - Pareto frontier exploration with constraints
+3. **Robustness-guided tuning** - Maximize constraint margins
+4. **Sensitivity analysis** - Identify critical design parameters
+5. **Requirements engineering** - Formal specification of design goals
+
+**Publishing potential:**
+- "STL-Guided Design Space Exploration for Transformer Accelerators"
+- "Robustness-Based Ranking for NN Hardware Design"
+- "Formal Temporal Constraints for Hardware-Software Co-Design"
+
+---
+
 **Last Updated:** 2025-11-18
-**Codebase Version:** 0.1 (commit: 9acde4e)
+**Codebase Version:** 0.1 (commit: 60bfdcb)

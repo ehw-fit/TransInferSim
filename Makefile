@@ -7,10 +7,9 @@ EMC := (echo "ERROR: plug-in build failed."; exit 1)
 all: install
 
 install:
-	@echo "--- Preparing virtual environment ---"
-	$(UV) sync --all-groups
+	@echo "--- Building native components ---"
 	$(MAKE) build-accelergy
-	@echo "--- Finalizing installation ---"
+	@echo "--- Installing Python environment ---"
 	$(UV) sync --all-groups
 
 submodules-init:

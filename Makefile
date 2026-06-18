@@ -19,7 +19,7 @@ submodules-init:
 build-accelergy: submodules-init
 	@echo "--- Building Accelergy plugins ---"
 	cd accelergy_plugins/accelergy-cacti-plug-in && $(MAKE) build > /dev/null 2>&1 || $(EMC)
-	cd accelergy_plugins/accelergy-neurosim-plugin && $(UV) run --with setuptools --with wheel python setup.py build_ext || $(EMC)
+	cd accelergy_plugins/accelergy-neurosim-plugin && $(MAKE) make > /dev/null 2>&1 || $(EMC)
 	@echo "--- All sub-components built successfully ---"
 
 clean:

@@ -4,18 +4,16 @@ import re
 
 
 class OffChipMemory(GenericMemory):
-    def __init__(self, name: str, width: int, depth: int, action_latency: float, bus_bitwidth: int, cycle_time: float, bus_clock_hz: float, word_size: int = 8, ports: int = 2, banks: int = 1, prefetch_factor: int = 2, burst_length: int = 1, replacement_strategy = None, parent_component = None, accelergy_class = "offchip_DRAM"):
-        super().__init__(width=width, depth=depth, bus_bitwidth=bus_bitwidth, action_latency=action_latency, word_size=word_size, ports=ports, name=name, cycle_time=cycle_time, replacement_strategy=replacement_strategy, parent_component=parent_component, accelergy_class=accelergy_class)
-        assert banks > 0, f"Banks must be a positive integer for {self.__class__.__name__}."
+    def __init__(self, name: str, width: int, depth: int, action_latency: float, channel_bus_bitwidth: int, cycle_time: float, bus_clock_hz: float, word_size: int = 8, ports: int = 2, banks: int = 1, prefetch_factor: int = 2, burst_length: int = 1, replacement_strategy = None, parent_component = None, accelergy_class = "offchip_DRAM"):
+        super().__init__(width=width, depth=depth, bus_bitwidth=channel_bus_bitwidth, action_latency=action_latency, word_size=word_size, ports=ports, banks=banks, name=name, cycle_time=cycle_time, replacement_strategy=replacement_strategy, parent_component=parent_component, accelergy_class=accelergy_class)
         assert prefetch_factor in (1, 2, 4, 8, 16), "Prefetch factor must be one of 1 (SDR), 2 (DDR), 4 (DDR2), 8 (DDR3-4) , 16 (DDR5)"
         assert (burst_length in {1, 2, 4, 8, 16}) and (burst_length % prefetch_factor == 0 or (prefetch_factor >= 8 and burst_length * 2 == prefetch_factor)), \
         "Burst length must be in {1,2,4,8,16} and be a multiple of prefetch_factor (or half when prefetch>=8 for burst-chop)"
 
         self.prefetch_factor = prefetch_factor
         self.bus_clock_hz = bus_clock_hz
-        self.banks = banks  # TODO Currently does nothing
         self.burst_length = burst_length
-        self._min_burst_bits = burst_length * bus_bitwidth
+        self._min_burst_bits = burst_length * channel_bus_bitwidth
         self._replacement_strategy = None  # Off-chip memory does not support replacement strategies
         # Peak transfers per second on one port
         beats_per_second = prefetch_factor * bus_clock_hz
@@ -33,13 +31,14 @@ class OffChipMemory(GenericMemory):
                 f"Bus Clock Frequency: {round(self.bus_clock_hz / 1e9, 1)} GHz>")
 
     # Discrete simulation methods
-    def read(self, read_mode, data_id, data_category, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_read=None, offset=None):
+    def read(self, read_mode, data_id, data_category, is_data_broadcasted, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_read=None, offset=None):
         """
         Read data from off-chip memory, either as a specific tile or a number of elements. It is assumed all data are there (besides those computed on-the-fly).
 
         Args:
             read_mode (str): Read mode for the memory block. Either 'read_elements' and 'read_tile' are supported.
             data_id (str): Identifier for the data.
+            is_data_broadcasted (bool): Whether the data tensor is a broadcasted view.
             data_category (str): Identifier for 'static' or 'dynamic' data tensor.
             tensor_shape (tuple): Shape of the whole tensor to be read from memory, defined as (rows, cols).
             data_bitwidth (int): Bitwidth of the data elements to be read from memory.
@@ -49,6 +48,7 @@ class OffChipMemory(GenericMemory):
             offset (tuple): Offset within the data, as (row_offset, col_offset).
 
         Returns:
+            TODO  update tuple of three now...
             tuple: (success (bool), action_cycles (int))
         """
         tensor_rows, tensor_cols = tensor_shape
@@ -68,6 +68,8 @@ class OffChipMemory(GenericMemory):
             if re.fullmatch(r'(?:.*_)?input(?:_.*)?', data_id) or data_category == "static":
                 self.contents[data_id] = {
                     'data_category': data_category,
+                    'broadcasted_view': is_data_broadcasted,
+                    'tensor_shape': tensor_shape,
                     'presence_matrix': self._initialize_presence_matrix(tensor_shape, 1),
                     'data_amount': tensor_rows * tensor_cols,
                     'data_read_count': 0,
@@ -93,6 +95,10 @@ class OffChipMemory(GenericMemory):
                 raise ValueError(f"tile_shape and offset must be provided for 'read_tile' mode in read operation from {self.name} memory.")
 
             tile_rows, tile_cols = tile_shape
+            if data_metadata.get('broadcasted_view', False):
+                phys_rows, phys_cols = data_metadata['presence_matrix'].shape
+                tile_rows = min(tile_rows, phys_rows)
+                tile_cols = min(tile_cols, phys_cols)
             elems_to_read = tile_rows * tile_cols
             read_mem_words = math.ceil(tile_rows * tile_cols / elements_per_word)
             tile_found, _ = self._check_tile_presence(data_id, tile_shape, offset)
@@ -102,8 +108,11 @@ class OffChipMemory(GenericMemory):
             if elems_to_read is None or offset is None:
                 raise ValueError(f"elems_to_read and offset must be provided for 'read_elements' mode in read operation from {self.name} memory.")
 
+            if data_metadata.get('broadcasted_view', False):
+                phys_rows, phys_cols = data_metadata['presence_matrix'].shape
+                elems_to_read = min(elems_to_read, phys_rows * phys_cols)
             read_mem_words = math.ceil(elems_to_read / elements_per_word)
-            elems_found = self._check_data_presence(data_id, elems_to_read, offset)
+            elems_found, _ = self._check_data_presence(data_id, elems_to_read, offset)
             assert elems_found, f"Data of data id '{data_id}' not present in offchip memory, this should not happen!"
         else:
             raise ValueError(f"Unknown read mode: {read_mode} requested from memory {self.name}. Supported modes are 'read_elements' and 'read_tile'.")
@@ -112,7 +121,7 @@ class OffChipMemory(GenericMemory):
         self.word_read_count += read_mem_words
         mem_reads = int(math.ceil(read_mem_words / self.row_words))
         self.mem_read_count += mem_reads
-        
+
         data_metadata['data_read_count'] += elems_to_read
         data_metadata['word_read_count'] += read_mem_words
         data_metadata['mem_read_count'] += mem_reads
@@ -126,7 +135,7 @@ class OffChipMemory(GenericMemory):
         cycles = self.mem_access_cycles + serialize_core_cycles
         return True, cycles
 
-    def write(self, write_mode, data_id, data_category, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_write=None, offset=None, verbose=False, **kwargs):
+    def write(self, write_mode, data_id, data_category, is_data_broadcasted, tensor_shape, data_bitwidth, port_id, tile_shape=None, elems_to_write=None, offset=None, verbose=False, **kwargs):
         """
         Write data to off-chip memory, either as a specific tile or a number of elements.
 
@@ -134,6 +143,7 @@ class OffChipMemory(GenericMemory):
             write_mode (str): Write mode for the memory block. Either 'write_elements' and 'write_tile' are supported.
             data_id (str): Identifier for the data.
             data_category (str): Identifier for 'static' or 'dynamic' data tensor.
+            is_data_broadcasted (bool): Whether the data tensor is a broadcasted view.
             tensor_shape (tuple): Shape of the whole tensor to be written to memory, defined as (rows, cols).
             data_bitwidth (int): Bitwidth of the data elements to be written to memory.
             port_id (int): ID of port used for storing the data. Not used here.
@@ -143,11 +153,14 @@ class OffChipMemory(GenericMemory):
             verbose (bool): If True, prints detailed information about the write process. Not used here. Defaults to False.
 
         Returns:
+            TODO  update tuple of three now...
             tuple: (success (bool), action_cycles (int))
         """
         if data_id not in self.contents:
             self.contents[data_id] = {
                 'data_category': data_category,
+                'broadcasted_view': is_data_broadcasted,
+                'tensor_shape': tensor_shape,
                 'presence_matrix': self._initialize_presence_matrix(tensor_shape, 0),
                 'data_amount': 0,
                 'data_read_count': 0,
@@ -232,7 +245,7 @@ class OffChipMemory(GenericMemory):
                 "datawidth": self.word_size,
                 "read_bandwidth": math.ceil(self.bus_bitwidth / self.word_size),
                 "write_bandwidth": math.ceil(self.bus_bitwidth / self.word_size),
-                "n_rdwr_ports": self.ports,
+                "n_rw_ports": self.ports,
                 "action_latency_cycles": self.mem_access_cycles
             }
         }

@@ -16,31 +16,26 @@ class BufferStack(GenericMemory):
         **kwargs: Additional keyword args forwarded to `GenericMemory`.
     """
 
-    def __init__(self, num_buffers: int, buffer_length: int, is_it_row_buffer: bool, element_size: int = 8, name: str = "buffer_stack", **kwargs: Any):
+    def __init__(self, num_buffers: int, bus_bitwidth: int, action_latency: float, cycle_time: float, buffer_length: int, is_it_row_buffer: bool, power_gating: bool = False, element_size: int = 8, name: str = "buffer_stack", replacement_strategy = "fifo", **kwargs: Any):
         # Map to GenericMemory semantics
         self.buffer_length = buffer_length
         self.num_buffers  = num_buffers
+        self.power_gating = power_gating  # TODO Currently does nothing
         width  = buffer_length * element_size
         self._type = "row" if is_it_row_buffer else "column"
-
-        # GenericMemory still insists on a bus, cycle time, etc., passing dummy but legal values so all asserts pass.
-        dummy_bus      = max(element_size, kwargs.pop("bus_bitwidth", element_size))
-        dummy_latency  = kwargs.pop("action_latency", 1)
-        dummy_cycle    = kwargs.pop("cycle_time", 1)
-        dummy_ports    = kwargs.pop("ports", 1)          # ≥ 1 to satisfy the assert
-        dummy_repl     = kwargs.pop("replacement_strategy", "fifo")
         accelergy_cls  = kwargs.pop("accelergy_class", "smartbuffer_RF")
 
         super().__init__(
             width=width,
             depth=self.num_buffers,
-            bus_bitwidth=dummy_bus,
-            action_latency=dummy_latency,
-            cycle_time=dummy_cycle,
-            ports=dummy_ports,
+            bus_bitwidth=bus_bitwidth,
+            action_latency=action_latency,
+            cycle_time=cycle_time,
+            ports=1,
             word_size=element_size,
+            banks=1,
             name=name,
-            replacement_strategy=dummy_repl,
+            replacement_strategy=replacement_strategy,
             parent_component=kwargs.pop("parent_component", None),
             accelergy_class=accelergy_cls,
         )
@@ -49,7 +44,8 @@ class BufferStack(GenericMemory):
         return (f"<class={self.__class__.__name__} name={self.name}| "
                 f"Total: {self.num_buffers * self.buffer_length} elements/words ({self.num_buffers} buffers × {self.buffer_length} w/buf) "
                 f"Size: {self.size} b "
-                f"Word-size: {self.word_size} b>")
+                f"Word-size: {self.word_size} b "
+                f"Power gating: {self.power_gating}>")
 
     # Accelergy export methods
     def get_accelergy_description(self):
@@ -61,6 +57,8 @@ class BufferStack(GenericMemory):
                 "depth": self.depth,
                 "width": self.width,
                 "datawidth": self.word_size,
-                "action_latency_cycles": self.mem_access_cycles
+                "action_latency_cycles": self.mem_access_cycles,
+                "n_banks": self.banks,
+                "has_power_gating": self.power_gating
             }
         }

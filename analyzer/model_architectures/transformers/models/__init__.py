@@ -9,3 +9,5 @@ from .vit_large import ViTLarge
 from .deit_tiny import DeiTTiny
 
 from .deepseekv2 import DeepSeekV2
+from .gpt2_xl import GPT2XL
+from .deepseekr1_1_5b import DeepSeekR1_1_5B

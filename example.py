@@ -41,7 +41,7 @@ if __name__ == "__main__":
     # NOTE: Offchip DRAM width and depth is not important for the final area. However, its size determines the energy-per-access into DRAM, since the size affects the energy connected with address generation.
     # Minimum width and depth of a memory is 64 to avoid Accelergy errors (CACTI wants at least 64x64 size)
     # the cycle time should match the accelerator cycle time (1/cycle_time gives frequency)
-    dram = OffChipMemory(name="offchip_mem_1", width=1024, depth=4096000, action_latency=70e-9, cycle_time=5e-9, bus_clock_hz=200e6, bus_bitwidth=32, ports=3, prefetch_factor=2, burst_length=4)
+    dram = OffChipMemory(name="offchip_mem_1", width=1024, depth=4096000, action_latency=70e-9, channel_bus_bitwidth=32, cycle_time=5e-9, bus_clock_hz=200e6, word_size=8, ports=3, prefetch_factor=2, burst_length=4)
     # Tech node is set to 45nm for Accelergy (if different is used, it may cause Accelergy errors, resulting in no energy/area stats)
     
     # NOTE: auto interconnect is used to automatically connect matmul blocks with memories based on the lists of components (if set to true, it overrides USER DEFINED INTERCONNECTIONS!)
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     # Define computational blocks (MatmulArray); NOTE: Their sizes can be different
     comp_blocks = []
     for i in range(3):
-        comp_blocks.append(MatmulArray(rows=64, columns=64, data_bitwidth=8, buffer_length=16, cycle_time=accelerator.cycle_time, name=f"comp_block{i}", num_pipeline_stages=1, cycles_per_mac=1))
+        comp_blocks.append(MatmulArray(rows=64, columns=64, data_bitwidth=8, cycle_time=accelerator.cycle_time, action_latency=1e-9, buffer_length=16, name=f"comp_block{i}", num_pipeline_stages=1, cycles_per_mac=1))
 
     # 16MB shared memory (used for connection to DRAM and to other memories/matmuls blocks and storing all data types (static and dynamic))
     # Replacement strategies supported: random, lru, lfu, mru, fifo
@@ -101,7 +101,7 @@ if __name__ == "__main__":
 
     """ ANALYZER """
     analyzer = Analyzer(model, accelerator, data_bitwidth=8)  # data bitwidth is currently considered uniform for all data tensors
-    analyzer.visualize_graph("test_graph1")
+    analyzer.visualize_graph("test_graph")
 
     """ SIMULATION """
     # None scheduling key == uniform distribution of compute operations across compute units

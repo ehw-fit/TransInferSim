@@ -6,8 +6,14 @@
 __pycache__/
 **/__pycache__/
 build/
-infersim.egg-info/
+*.egg-info/
+.venv/
+venv/
 analyzer_*.py
 analyze*.py
 experiment*.py
 test*.py
+*.log
+*_ACCELERGY_OUTPUT/
+stats_out*.txt
+test_graph*

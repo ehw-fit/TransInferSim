@@ -161,10 +161,6 @@ class GenericAccelerator():
         utilizations = [block.calculate_utilization() for block in self.matmul_blocks if self.global_cycles > 0]
         return max(utilizations) if utilizations else 0
 
-    def update_global_cycles(self, cycles):
-        """Updates the global cycle count for the accelerator."""
-        self.global_cycles += cycles
-
     # Statistics report methods
     def get_statistics(self, log_mem_contents=False):
         """Returns statistics for the accelerator."""
@@ -265,6 +261,13 @@ class GenericAccelerator():
             output.append(f"    Total Bandwidth: {mem_stat['total_bandwidth'] / 1e9:.{precision}e} Gbps")
             output.append(f"    Current Usage: {mem_stat['current_usage']} words")
             output.append(f"    Utilized Capacity: {(mem_stat['current_usage'] / mem_stat['words_capacity']):.2%}")
+            if "usage_breakdown" in mem_stat:  # TODO DELETE OR ADJUST LATER
+                ub = mem_stat["usage_breakdown"]
+                output.append("    Usage Breakdown:")
+                output.append(f"      Used:     {ub['used_pct']:.2%}")
+                output.append(f"      Needed:   {ub['needed_pct']:.2%}")
+                output.append(f"      Obsolete: {ub['obsolete_pct']:.2%}")
+                output.append(f"      Free:     {ub['free_pct']:.2%}")
             output.append(f"    Action Latency: {mem_stat['action_latency']:.{precision}e}")
             output.append(f"    Cycles per Access: {mem_stat['cycles_per_access']}")
             output.append(f"    Data Read Count: {mem_stat['data_read_count']}")
@@ -278,18 +281,23 @@ class GenericAccelerator():
             output.append(f"    Cache Hit Rate: {mem_stat['cache_hit_rate']}")
             output.append(f"    Fragmented Bits: {mem_stat['fragmented_bits']}")
             output.append(f"    Replacement Strategy: {mem_stat['replacement_strategy']}")
-            output.append(f"    Energy: {mem_stat['energy']:.{precision}} J")
+            output.append(f"    Overall Energy: {mem_stat['energy']:.{precision}} J")
+            output.append(f"    Static Energy: {mem_stat['static_energy']:.{precision}} J")
+            output.append(f"    Dynamic Energy: {mem_stat['dynamic_energy']:.{precision}} J")
+            output.append(f"    Powered Cycles: {mem_stat['active_cycles']}")
             output.append(f"    Area: {float(mem_stat['area']):.{precision}} um^2")
             output.append("    Ports Utilization:")
             for port_id, port_util in mem_stat['ports_utilization'].items():
                 output.append(f"      Port ID: {port_id}")
                 output.append(f"        Global Cycles: {port_util['global_cycles']}")
+                output.append(f"        Active Cycles: {port_util['active_cycles']}")
                 output.append(f"        Idle Cycles: {port_util['idle_cycles']}")
                 output.append(f"        Utilization: {port_util['utilization']}")
             if mem_stat['contents'] is not None:
                 output.append("    Contents:")
                 for data_id, content in mem_stat['contents'].items():
                     output.append(f"      Data ID: {data_id}")
+                    output.append(f"        Tensor Shape: {content['tensor_shape']}")
                     output.append(f"        Data Amount: {content['data_amount']}")
                     output.append(f"        Data Read Count: {content['data_read_count']}")
                     output.append(f"        Memory Read Count: {content['mem_read_count']}")
@@ -324,12 +332,16 @@ class GenericAccelerator():
             output.append(f"    Word Read Count: {dram_stat['word_read_count']}")
             output.append(f"    Word Write Count: {dram_stat['word_write_count']}")
             output.append(f"    Fragmented Bits: -")
-            output.append(f"    Energy: {dram_stat['energy']:.{precision}} J")
+            output.append(f"    Overall Energy: {dram_stat['energy']:.{precision}} J")
+            output.append(f"    Static Energy: {dram_stat['static_energy']:.{precision}} J")
+            output.append(f"    Dynamic Energy: {dram_stat['dynamic_energy']:.{precision}} J")
+            output.append(f"    Powered Cycles: {dram_stat['active_cycles']}")
             output.append(f"    Area: {dram_stat['area']} um^2")
             output.append("    Ports Utilization:")
             for port_id, port_util in dram_stat['ports_utilization'].items():
                 output.append(f"      Port ID: {port_id}")
                 output.append(f"        Global Cycles: {port_util['global_cycles']}")
+                output.append(f"        Active Cycles: {port_util['active_cycles']}")
                 output.append(f"        Idle Cycles: {port_util['idle_cycles']}")
                 output.append(f"        Utilization: {port_util['utilization']}")
             if dram_stat['contents'] is not None:
@@ -357,7 +369,7 @@ class GenericAccelerator():
             output.append(f"    Cycles per MAC: {comp_stat['cycles_per_mac']}")
             output.append(f"    Peak FLOPs: {GenericAccelerator.format_flops(comp_stat['peak_flops'], precision=precision)}")
             output.append(f"    Peak MACs: {GenericAccelerator.format_macs(comp_stat['peak_macs'], precision=precision)}")
-            output.append(f"    Operational Cycles: {comp_stat['cycles']:.{precision}e}")
+            output.append(f"    Operational Cycles: {comp_stat['active_cycles']:.{precision}e}")
             output.append(f"    Latency: {(comp_stat['latency']):.{precision}} s")
             output.append(f"    Energy: {comp_stat['energy']:.{precision}} J")
             output.append(f"    EDP (cycles): {comp_stat['edp_cycles']:.{precision}} J.cycles")

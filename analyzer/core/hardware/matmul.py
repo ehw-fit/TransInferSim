@@ -15,16 +15,18 @@ class MatmulArray():
         columns (int): The number of columns in the matmul array.
         data_bitwidth (int): The bitwidth of the data processed by the array.
         cycle_time (float): The time per cycle in seconds (e.g., 7e-9 for 7ns).
+        action_latency (float): Latency of a memory action, in (seconds per access, based on technology node).
         buffer_length (int): Depth (in elements) of each per-row/per-column feeder buffer.
         cycles_per_mac (int): The number of cycles required to complete a single MAC operation. (Defaults to 1)
         num_pipeline_stages (int): The number of pipeline stages in the MAC unit. (Defaults to 1)
     """
 
-    def __init__(self, rows: int, columns: int, data_bitwidth: int, cycle_time: float, buffer_length: int, cycles_per_mac: int = 1, num_pipeline_stages: int = 1, name: str = "spatial_array", parent_component=None):
+    def __init__(self, rows: int, columns: int, data_bitwidth: int, cycle_time: float, action_latency: float, buffer_length: int, cycles_per_mac: int = 1, num_pipeline_stages: int = 1, name: str = "spatial_array", parent_component=None):
         assert rows > 0, "Number of rows must be positive."
         assert columns > 0, "Number of columns must be positive."
         assert data_bitwidth > 0, "Data bitwidth must be positive."
         assert cycle_time > 0, "Time required for one cycle must be positive."
+        assert action_latency > 0, f"Action latency must be a positive integer for {self.__class__.__name__}."
         assert buffer_length > 0, "Buffer length must be positive."
         assert cycles_per_mac > 0, "Number of cycles per MAC must be positive."
         assert num_pipeline_stages > 0, "Number of pipeline stages must be positive."
@@ -37,13 +39,14 @@ class MatmulArray():
         self.columns = columns
         self.pes = rows * columns
         self.cycle_time = cycle_time  # Accelerator cycle time
+        self.action_latency = action_latency  # Buffer access latency  # TODO redo with accelergy!
         self.parent_component = parent_component
         self._auto_interconnect_set = False  # Used for auto interconnection feature between other HW components to avoid repated interconnetct
         
         # Instantiating data feeding buffers
         self.buffer_length = buffer_length
-        self.row_buffer = BufferStack(name=f"{name}_rowbuf", buffer_length=buffer_length, is_it_row_buffer=True, num_buffers=rows, element_size=data_bitwidth)
-        self.col_buffer = BufferStack(name=f"{name}_colbuf", buffer_length=buffer_length, is_it_row_buffer=False, num_buffers=columns, element_size=data_bitwidth)
+        self.row_buffer = BufferStack(name=f"{name}_rowbuf", bus_bitwidth=rows*data_bitwidth, action_latency=action_latency, cycle_time=cycle_time, buffer_length=buffer_length, is_it_row_buffer=True, num_buffers=rows, element_size=data_bitwidth, replacement_strategy="fifo")
+        self.col_buffer = BufferStack(name=f"{name}_colbuf", bus_bitwidth=columns*data_bitwidth, action_latency=action_latency, cycle_time=cycle_time, buffer_length=buffer_length, is_it_row_buffer=False, num_buffers=columns, element_size=data_bitwidth, replacement_strategy="fifo")
 
         # Functional characteristics
         self.data_bitwidth = data_bitwidth
@@ -65,6 +68,7 @@ class MatmulArray():
         self.dynamic_param_memory = None # Memory for storing this matmul's dynamic params if it has any
 
         self._global_cycles = 0
+        self._active_cycles = 0
         self._pes_computational_cycles = 0
         self._pes_idle_cycles = 0
         self._total_flop_computes = 0
@@ -107,6 +111,14 @@ class MatmulArray():
     @global_cycles.setter
     def global_cycles(self, value):
         self._global_cycles = value
+
+    @property
+    def active_cycles(self):
+        return self._active_cycles
+
+    @active_cycles.setter
+    def active_cycles(self, value):
+        self._active_cycles = value
 
     @property
     def pes_computational_cycles(self):
@@ -244,8 +256,9 @@ class MatmulArray():
             self.assign_dynamic_params_memory(dram)
             dram._auto_interconnect_set = True
 
-    def compute(self, dim_m, dim_k, dim_n):
-        self.is_busy = True
+    def compute(self, dim_m, dim_k, dim_n,
+                include_input_skew: bool = True,
+                include_output_drain: bool = True):
         num_mac_operations = dim_m * dim_k * dim_n
         self.total_flop_computes += num_mac_operations * 2
 
@@ -255,13 +268,17 @@ class MatmulArray():
 
         # Pipeline fill delay added to each pe computation (since it accounts to cycles when some stages are already computing)
         pipeline_latency = self.num_pipeline_stages - 1
-        
+
         # Effective cycles per compute considering the overlap due to pipelining
         effective_cycles_per_compute = math.ceil(cycles_per_mac_compute / self.num_pipeline_stages) + pipeline_latency
 
-        # Total cycles for the entire array to finish the computation
-        # Each PE waits for ((dim_m - 1) + (dim_n - 1)) cycles to either get its data for calculating partial results or to wait on other PEs computations to finish
-        total_cycles = effective_cycles_per_compute + (dim_m - 1) + (dim_n - 1)
+        # Systolic propagation costs — charged only on the first/last temporal tile of a spatial tile.
+        # input_skew  (dim_m - 1): cycles for A data to fill all rows at the start of a new spatial tile.
+        # output_drain (dim_n - 1): cycles for the last partial sums to drain across all columns at the end.
+        # For intermediate temporal tiles these are 0: partial sums stay in the PEs between K-slices.
+        input_skew   = (dim_m - 1) if include_input_skew   else 0
+        output_drain = (dim_n - 1) if include_output_drain else 0
+        total_cycles = effective_cycles_per_compute + input_skew + output_drain
         
         self.accumulator_reads += ((effective_cycles_per_compute - pipeline_latency - 1) * (dim_m * dim_n))  # -1 to account for the first read of 0 partial result
         self.accumulator_writes += ((effective_cycles_per_compute - pipeline_latency) * (dim_m * dim_n))
@@ -274,8 +291,8 @@ class MatmulArray():
         self.pes_idle_cycles += pes_idle_cycles
 
         assert pes_computational_cycles + pes_idle_cycles == total_cycles * self.pes
-        self.global_cycles += total_cycles
-        return total_cycles
+        self.active_cycles += total_cycles
+        return num_mac_operations, total_cycles
 
     def compute_done(self):
         self.current_operation_event = None
@@ -283,7 +300,7 @@ class MatmulArray():
 
     # Methods used for stats retrieval
     def get_pes_total_cycles(self):
-        return self.global_cycles * self.pes
+        return self.active_cycles * self.pes
 
     def calculate_utilization(self):
         """Calculates and returns the utilization based on current stats."""
@@ -305,11 +322,12 @@ class MatmulArray():
             'peak_flops': self.peak_flops,
             'peak_macs': self.peak_macs,
             'cycle_time': self.cycle_time,
-            'cycles': self.global_cycles,
-            'latency': self.global_cycles * self.cycle_time,
+            'global_cycles': self.global_cycles,
+            'active_cycles': self.active_cycles,
+            'latency': self.active_cycles * self.cycle_time,
             'energy': self.energy * 1e-12,
-            'edp_latency': (self.energy * 1e-12) * self.global_cycles * self.cycle_time,
-            'edp_cycles': (self.energy * 1e-12) * self.global_cycles,
+            'edp_latency': (self.energy * 1e-12) * self.active_cycles * self.cycle_time,
+            'edp_cycles': (self.energy * 1e-12) * self.active_cycles,
             'area': self.area,
             'pes_total_cycles': self.get_pes_total_cycles(),
             'pes_computational_cycles': self.pes_computational_cycles,
@@ -326,10 +344,13 @@ class MatmulArray():
         self.area = 0
         self.energy = 0
         self.compute_done()
+        self.row_buffer.reset_stats()
+        self.col_buffer.reset_stats()
 
         self.plan = []
 
         self.global_cycles = 0
+        self.active_cycles = 0
         self.pes_computational_cycles = 0
         self.pes_idle_cycles = 0
         self.total_flop_computes = 0

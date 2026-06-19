@@ -1,6 +1,6 @@
 from graphviz import Digraph
 import re
-from analyzer.core.simulator.simulator import StaticSimulationEngine, GeneticAlgorithmSimulationEngine
+from analyzer.core.simulator.simulator import StaticSimulationEngine, DynamicSimulationEngine
 from analyzer.utils.utils import best_factors, compute_tile_bounds, TensorsNeededTracker, safe_label
 
 
@@ -22,14 +22,21 @@ class ExecutionNode:
         self.data_bitwidth = data_bitwidth
         self.output = output
         self.children = []
+        self._children = []
         self.depth = depth
         self.encoding_range = (None, None)  # Used for encoding the range for valid scheduling of the operation in time
         self.encoding_value = None          # Encoding value for valid scheduling is added during analysis itself
-        self.input_data = input_data if input_data is not None else {}
-        self.output_data = output_data if output_data is not None else {}
+        self.input_data = input_data if input_data is not None else []
+        self.output_data = output_data if output_data is not None else []
         self._is_root = False
         self._is_done = False
+        self._start_time = 0
+        self._finish_time = 0
+        self._macs = 0
+        self._compute_time = 0
+        self._phase_log = []  # [(t_start, t_end, kind)] where kind ∈ {"dram","onchip","compute"}
         self._pending_event = None  # Used in simulation analysis to reschedule the node operation if it was waiting for its dependent (children) nodes to finish
+        self._priority = None
         self.parents = []
 
     def __str__(self):
@@ -40,11 +47,20 @@ class ExecutionNode:
 
     def add_child(self, node):
         self.children.append(node)
+        self._children.append(node)
         node.parents.append(self)
         if node.depth <= self.depth:
             node.depth = self.depth + 1
 
     # Simulation analysis properties and method
+    @property
+    def priority(self):
+        return self._priority
+
+    @priority.setter
+    def priority(self, value: int):
+        self._priority = value    
+
     @property
     def is_done(self):
         return self._is_done
@@ -52,7 +68,43 @@ class ExecutionNode:
     @is_done.setter
     def is_done(self, value: bool):
         self._is_done = value
-        
+
+    @property
+    def start_time(self):
+        return self._start_time
+
+    @start_time.setter
+    def start_time(self, value: int):
+        self._start_time = value
+    
+    @property
+    def finish_time(self):
+        return self._finish_time
+
+    @finish_time.setter
+    def finish_time(self, value: int):
+        self._finish_time = value
+
+    @property
+    def compute_time(self):
+        return self._compute_time
+
+    @compute_time.setter
+    def compute_time(self, value: int):
+        self._compute_time = value
+
+    @property
+    def phase_log(self):
+        return self._phase_log
+
+    @property
+    def macs(self):
+        return self._macs
+
+    @macs.setter
+    def macs(self, value: int):
+        self._macs = value
+
     @property
     def pending_event(self):
         return self._pending_event
@@ -65,8 +117,14 @@ class ExecutionNode:
         """Removes dependency of self node from the parents' children list."""
         if self.parents:
             for parent in self.parents:
-                if self in parent.children:
-                    parent.children.remove(self)
+                parent.children.remove(self)
+    
+    def readd_dependency(self):
+        """Reactives dependency from the parents' children list."""
+        if self.parents:
+            for parent in self.parents:
+                if self not in parent.children:
+                    parent.children.append(self)
 
 
 """ Class for analyzing given model's inference performance in hardware """
@@ -76,9 +134,11 @@ class Analyzer:
         self.model = model
         self.hw_arch = hw_arch
         self.engine = None
+        self._analysis_type = ""  # I.e. static or dynamic
         self.data_bitwidth = data_bitwidth  # TODO Uniform for simplicity.. could be tied to individual data tensors for non-uniform analysis
         self.num_subops = num_subops  # TODO make automated.. Number of sub operations to split each operation into (for parallel execution)
         self._params = self.model.parameters.get('parameters', {})
+        
         # TODO ... HERE.. STATIC CHECKS FOR MEMORY SIZES IF THEY CAN HOLD THE DATA!!!
 
         # Assert that the wordsize of each MatmulArray is at least as large as the data_bitwidth
@@ -97,6 +157,7 @@ class Analyzer:
             # TODO CHECK AUTO INTERCONNECTION FOR COMPLEX ARCHITECTURES
             if matmul_block.parent_component.auto_interconnect is True and matmul_block._auto_interconnect_set is False:
                 matmul_block.find_and_assign_memories()
+
 
         # TODO add static check for each on chip's memory capacity to hold each tile's data (in and out)
         self.graph = ExecutionGraph()
@@ -130,10 +191,13 @@ class Analyzer:
             inputs = self.extract_inputs(computation)
             output = plan.get('output')
 
-            if self.num_subops > 1 and top_level_op != "concat":  # Add concatenation operation for the sub operation outputs
-                subop_outputs = {f"{output}_subop_{i}": self.get_parameter_data(output, "out", i) for i in range(self.num_subops)}  # TODO
-                comp_op = f"concat({', '.join(subop_outputs)})"
-                out_data = {output: self.get_parameter_data(output, "concat")} if output else {}
+            if self.num_subops > 1 and top_level_op not in ("concat", "broadcast"):  # Add concatenation operation for the sub operation outputs
+                subop_outputs = [{"name": f"{output}_subop_{i}", "data": self.get_parameter_data(output, "out", i)} for i in range(self.num_subops)]
+                
+                concat_inputs = [item["name"] for item in subop_outputs]
+                comp_op = f"concat({', '.join(concat_inputs)})"                
+                out_data = [{"name": output, "data": self.get_parameter_data(output, "concat")}] if output else []
+                
                 node = ExecutionNode(f"{plan.get('name')} Outputs Concatenation", comp_op, batch_size, self.data_bitwidth, output, subop_outputs, out_data)
                 self.graph.leaves.append(node)  # Assume new node is a leaf initially
                 self.graph.all_nodes.append(node)  # Add node to all_nodes list
@@ -147,7 +211,8 @@ class Analyzer:
                                 self.graph.leaves.remove(dependent_node)  # The parent node is not a leaf anymore (there is data dependency)
 
                 # Iterate over the node's input variables and update the req_inputs_to_nodes dictionary to be then used for proper connection to the node whose output is one of the required inputs (data-dependency)
-                for input_var in subop_outputs:
+                for item in subop_outputs:
+                    input_var = item["name"]
                     if input_var not in self.req_inputs_to_nodes:
                         self.req_inputs_to_nodes[input_var] = []
                     self.req_inputs_to_nodes[input_var].append(node)
@@ -159,8 +224,13 @@ class Analyzer:
                     self.graph.root._is_root = True
             
             if top_level_op == "concat":
-                input_data = {input_var: self.get_parameter_data(input_var, "concat") for input_var in inputs}
-                output_data = {output: self.get_parameter_data(output, "concat")} if output else {}
+                input_data = []
+                for input_var in inputs:
+                    input_data.append({
+                        "name": input_var,
+                        "data": self.get_parameter_data(input_var, "concat")
+                    })
+                output_data = [{"name": output, "data": self.get_parameter_data(output, "concat")}] if output else []
 
                 node = ExecutionNode(plan.get('name'), computation, batch_size, self.data_bitwidth, output, input_data, output_data)
                 self.graph.leaves.append(node)  # Assume new node is a leaf initially
@@ -186,13 +256,69 @@ class Analyzer:
                     self.graph.tensors_needed.increase_count(output)
                     self.graph.root = node
                     self.graph.root._is_root = True
+            
+            elif top_level_op == "broadcast":  # TODO REFACTOR
+                assert len(inputs) > 0, "Broadcast node must have at least one input"
+                assert len(set(inputs)) == 1, f"Broadcast node inputs must all be the same tensor, got {inputs}"
+
+                input_data = []
+                for input_var in inputs:
+                    input_data.append({
+                        "name": input_var,
+                        "data": self.get_parameter_data(input_var, "broadcast")
+                    })
+
+                output_data = [{"name": output, "data": self.get_parameter_data(output, "broadcast")}] if output else []
+                output_data[0]['data']['broadcasted_view'] = True
+
+                node = ExecutionNode(
+                    plan.get('name'),
+                    computation,
+                    batch_size,
+                    self.data_bitwidth,
+                    output,
+                    input_data,
+                    output_data
+                )
+
+                self.graph.leaves.append(node)
+                self.graph.all_nodes.append(node)
+
+                if node.output in self.req_inputs_to_nodes.keys():
+                    for dependent_node in self.req_inputs_to_nodes[node.output]:
+                        if node not in dependent_node.children:
+                            dependent_node.add_child(node)
+                            for i in dependent_node.input_data:
+                                if i['name'] == node.output:
+                                    i['data']['broadcasted_view'] = True                            
+                            
+                            if dependent_node in self.graph.leaves:
+                                self.graph.leaves.remove(dependent_node)
+
+                if inputs[0] not in self.req_inputs_to_nodes:
+                    self.req_inputs_to_nodes[inputs[0]] = []
+                    self.graph.tensors_needed.increase_count(inputs[0])
+
+                self.req_inputs_to_nodes[input_var].append(node)
+                self.graph.max_depth = max(self.graph.max_depth, node.depth)
+
+                if self.graph.root is None:
+                    self.graph.tensors_needed.increase_count(output)
+                    self.graph.root = node
+                    self.graph.root._is_root = True
             else:
                 for subop_id in range(self.num_subops):
                     # TODO WHAT ABOUT THE CONCAT!!!!!
                     transpose_b = self.matrix_b_needs_transpose(inputs[0], inputs[1])
-                    input_data = {input_var: self.get_parameter_data(input_var, f"in_{chr(97 + i)}", subop_id, transpose_b) for i, input_var in enumerate(inputs)}
+                    
+                    input_data = []
+                    for i, input_var in enumerate(inputs):
+                        input_data.append({
+                            "name": input_var,
+                            "data": self.get_parameter_data(input_var, f"in_{chr(97 + i)}", subop_id, transpose_b)
+                        })
                     out_name = f"{output}_subop_{subop_id}" if self.num_subops > 1 else output
-                    output_data = {out_name: self.get_parameter_data(output, "out", subop_id)} if output else {}
+                    output_data = [{"name": out_name, "data": self.get_parameter_data(output, "out", subop_id)}] if output else []
                     op_name = f"{plan.get('name')}_subop_{subop_id}" if self.num_subops > 1 else plan.get('name')
 
                     node = ExecutionNode(op_name, computation, batch_size, self.data_bitwidth, out_name, input_data, output_data)
@@ -220,7 +346,6 @@ class Analyzer:
                         self.graph.root = node
                         self.graph.root._is_root = True
 
-    
 
     def matrix_b_needs_transpose(self, input_a: str, input_b: str) -> bool:
         """Determines if the second matrix (input_b) needs transposing for matmul."""
@@ -268,34 +393,47 @@ class Analyzer:
                         'dimensions': (dim_x, dim_y),
                         'tile_shape': (dim_x, dim_y),
                         'offset': (0, 0),
-                        'data_category': param_type
+                        'data_category': param_type,
+                        'broadcasted_view': False
+                    }
+                elif type == "broadcast":  # Reserved for broadcast operation
+                    return {
+                        'dimensions': (dim_x, dim_y),
+                        'tile_shape': (dim_x, dim_y),
+                        'offset': (0, 0),
+                        'data_category': param_type,
+                        'broadcasted_view': False
                     }
                 elif type == "in_a":  # Tile only along rows (first dim)
                     return {
                         'dimensions': (dim_x, dim_y),
                         'tile_shape': (tile_shape[0], dim_y),
                         'offset': (offset_x, 0),
-                        'data_category': param_type
+                        'data_category': param_type,
+                        'broadcasted_view': False
                     }
                 elif type == "in_b":  # Tile only along columns (second dim)
                     return {
                         'dimensions': (dim_x, dim_y) if not transpose_b else (dim_y, dim_x),
                         'tile_shape': (dim_x, tile_shape[1]) if not transpose_b else (tile_shape[1], dim_x),
                         'offset': (0, offset_y) if not transpose_b else (offset_y, 0),
-                        'data_category': param_type
+                        'data_category': param_type,
+                        'broadcasted_view': False
                     }
                 else:  # For subtiled output
                     return {
                         'dimensions': tile_shape,
                         'tile_shape': tile_shape,
                         'offset': (0, 0),
-                        'data_category': param_type
+                        'data_category': param_type,
+                        'broadcasted_view': False
                     }
         return {
             'dimensions': 'Unknown',
             'tile_shape': 'Unknown',
             'offset': 'Unknown',
-            'data_category': 'Unknown'
+            'data_category': 'Unknown',
+            'broadcasted_view': False
         }
 
     def extract_top_operation(self, computation_str):  # TODO make more robust later with recursive support for parsing nested ops (like softmax(matmul(x, y), z))
@@ -310,7 +448,7 @@ class Analyzer:
     def extract_inputs(self, computation_str):
         """ Extract potential input variable names from the computation string. """
         # NOTE add more then just matmul and add if required or... add inputs list straight to plans within layers/models...
-        ignored_words = {'matmul', 'add', 'concat'}
+        ignored_words = {'matmul', 'add', 'concat', 'broadcast'}
         words = re.findall(r'[a-z_0-9]+', computation_str)
         # Filter out ignored words, preserving the original order (IMPORTANT! to preserve the original matrix-matrix computation order)
         inputs = [i for i in words if i not in ignored_words]
@@ -341,11 +479,11 @@ class Analyzer:
         self._build_graph(dot, self.graph.root)
         dot.render(filename, format='pdf')
 
-    def run_simulation_analysis(self, verbose: bool = False, engine_type='static', deterministic=True, store_to_tmp=False, **kwargs):
+    def run_simulation_analysis(self, verbose: bool = False, permutation_seed: int = None, scheduling_seed: int = None, engine_type='static', store_to_tmp=False, **kwargs):
         """Method for executing simulation analysis of the execution graph on the hardware accelerator.
 
         This method configures and executes a simulation of the accelerator's performance. The simulation can be tailored
-        using different engine types (e.g., static simulation, genetic algorithm).
+        using different engine types (e.g., static simulation, dynamic simulation).
         The runtime results of the simulation are used to generate area and energy estimation reports via external plug-ins (e.g. Accelergy).
 
         Notes:
@@ -355,20 +493,24 @@ class Analyzer:
         Args:
             verbose (bool): If True, prints detailed simulation progress and results. Defaults to False.
             engine_type (str): The type of simulation engine to use. Options are 'static' or 'dynamic'. Defaults to 'static'.
-            deterministic (bool): Decides whether all random choices (i.e. choose from many viable options for victim) will be controlled by the permutation seed or just random. Defaults to True.
+            permutation_seed (int): Seed controlling permutation/randomization of operation ordering. NOTE: this setting only applies for native, internal scheduling. External schedulers may override this. Defaults to None.
+            scheduling_seed (int): Seed controlling assignment of operations to compute arrays during internal scheduling. NOTE: this setting only applies for native, internal scheduling. External schedulers may override this. Defaults to None.
             store_to_tmp (bool): Decides whether to store Accelergy outputs to tmp or in local directory.
         """
-        if engine_type == 'static':
-            self.engine = StaticSimulationEngine(model=self.model, execution_graph=self.graph, hw_arch=self.hw_arch, verbose=verbose, deterministic=deterministic, store_to_tmp=store_to_tmp, **kwargs)
-        elif engine_type == 'dynamic':  # TODO dynamically reschedule operations during execution in-between spatial arrays...
-            raise NotImplementedError("Simulation Engine for Dynamic Scheduler not yet implemented")
-            #engine = GeneticAlgorithmSimulationEngine(model=self.model, execution_graph=self.graph, hw_arch=self.hw_arch, verbose=verbose, initiation_seed=initiation_seed, scheduling_seed=scheduling_seed)
-        elif engine_type == 'genetic':  # TODO use PYMOO or DEAP for genetic algorithm
-            raise NotImplementedError("Simulation Engine for Genetic Algorithm not yet implemented")
-            #engine = GeneticAlgorithmSimulationEngine(model=self.model, execution_graph=self.graph, hw_arch=self.hw_arch, verbose=verbose, initiation_seed=initiation_seed, scheduling_seed=scheduling_seed)
-        else:
-            raise ValueError(f"Unknown engine type: {engine_type}")
-        self.engine.initialize_simulation()
+        if self.engine is None or self._analysis_type != engine_type:
+            if engine_type == 'static':
+                self.engine = StaticSimulationEngine(model=self.model, execution_graph=self.graph, hw_arch=self.hw_arch, verbose=verbose, permutation_seed=permutation_seed, scheduling_seed=scheduling_seed, store_to_tmp=store_to_tmp, **kwargs)
+                self._analysis_type = "static"
+            elif engine_type == 'dynamic':  # TODO dynamically reschedule operations during execution in-between spatial arrays...
+                self.engine = DynamicSimulationEngine(model=self.model, execution_graph=self.graph, hw_arch=self.hw_arch, verbose=verbose, permutation_seed=permutation_seed, scheduling_seed=scheduling_seed, store_to_tmp=store_to_tmp, **kwargs)
+                self._analysis_type = "dynamic"
+            else:
+                raise ValueError(f"Unknown engine type: {engine_type}")
+        
+        # TODO PASS IN OTHER ARGS IF CHANGED BETWEEN SIMULATION STEPS?
+        self.engine.verbose = verbose
+        self.engine.scheduler.verbose = verbose
+        self.engine.initialize_simulation(**kwargs)
 
     def reset_graph(self):
         self.graph = ExecutionGraph()

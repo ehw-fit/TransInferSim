@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.11', '3.x']
+        python-version: ['3.9', '3.11', '3.13']
 
     steps:
     - name: Checkout repository
@@ -18,29 +18,23 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-
     - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y graphviz make g++
 
-    - name: Upgrade pip and basic tools
-      run: |
-        python -m pip install --upgrade pip
-        pip install wheel setuptools
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "latest"
 
-    - name: Build and install Accelergy submodules
-      run: ./scripts/setup_submodules.sh
-    
-    - name: Install TransInferSim
-      run: pip install .
+    - name: Install project
+      run: make install
+      env:
+        UV_PYTHON: ${{ matrix.python-version }}
 
     - name: Run example.py
-      run: python example.py
+      run: uv run python example.py
 
     - name: Upload stats output
       uses: actions/upload-artifact@v4

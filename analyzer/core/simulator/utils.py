@@ -62,19 +62,6 @@ def eval_operation_duration(operation, matmul_block, get_macs=False):
         return cycles
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # TODO add multiple port synchronization for reading more than one data simultaneously
 def _cycles_per_xfer(mem, bits):
     """One blocking transfer on one port. No overlap, now (e.g. multiple ports for more data, more systolic arrays TODO)"""
@@ -173,10 +160,6 @@ def eval_mem_time_cycles(operation, data_bitwidth_bits, path_map):
     return total_cycles, breakdown
 
 
-
-
-
-
 # Utils
 def _get_mem_path(mem):
     path = []
@@ -195,4 +178,3 @@ def get_memory_paths(inputs, output, matmul_block):
     in_b_path = [matmul_block.col_buffer] + _get_mem_path(getattr(matmul_block, mem_category(inputs[in_b]['data_category']), None))
     out_path  = [matmul_block] + _get_mem_path(getattr(matmul_block, mem_category(out_val['data_category']), None))
     return in_a_path, in_b_path, out_path
-

@@ -30,30 +30,32 @@ If you find our work useful, please refer [our paper](https://ieeexplore.ieee.or
 To get started with TransInferSim, follow these steps:
 
 ### Prerequisites
-- Python 3.8 or higher
-
-This project requires Graphviz to be installed on your system.
-On Ubuntu/Debian, you can install it using:
-
+- Python 3.9 or higher
+This project requires Graphviz, uv, and basic build tools (make, g++) to be installed.
+On Ubuntu/Debian:
 ```sh
-sudo apt-get install graphviz
+sudo apt install graphviz build-essential
 ```
 
 ### Clone and build the Repository
-Clone the repository and its submodules and build using pip:
+Clone the repository and its submodules and build using uv:
 
 ```sh
 git clone --recurse-submodules https://github.com/ehw-fit/TransInferSim
 cd TransInferSim
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip wheel setuptools
-./scripts/setup_submodules.sh
-pip install .
+make install
+source .venv/bin/activate
 ```
 
 ### Usage
 You can find an example run in the `example.py` script, which demonstrates how to instantiate a transformer model or layer of your choice along with a showcase of an example hardware specification. The script then runs an inference simulation, and the runtime performance statistics are saved to a `stats_out.txt` file.
+
+### Memory Occupancy Profiling
+To analyze memory utilization across the simulation, run the memory trace example from the project root:
+
+```sh
+python mem_trace_example.py
+```
 
 ### Licence
 This project is licensed under the MIT License - see the LICENSE file for details.

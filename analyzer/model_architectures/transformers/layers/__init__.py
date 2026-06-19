@@ -10,4 +10,8 @@ from .encoder import Encoder
 
 from .multi_head_latent_attention import MultiHeadLatentAttention
 
+from .grouped_query_attention import GroupedQueryAttention
+
+from .swiglu_feed_forward_network import SwiGLUFeedForwardNetwork
+
 from .test import Test
